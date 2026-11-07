@@ -1,0 +1,206 @@
+[
+  {
+    "topicId": "grocery",
+    "title": "柑仔店",
+    "question": "以前去柑仔店最喜歡買什麼？",
+    "followUpQuestion": "還記得店主或店裡的擺設嗎？",
+    "imagePrompt": "Historical Taiwanese scene involving 柑仔店, authentic people and everyday objects",
+    "assetPath": "assets/topics/grocery.jpg",
+    "illustrative": false,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Grocery_store_in_Taiwan_1950s.jpg",
+      "title": "File:Grocery store in Taiwan 1950s.jpg",
+      "creator": "李增昌",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "",
+      "license": "Public domain"
+    }
+  },
+  {
+    "topicId": "railway",
+    "title": "老火車",
+    "question": "以前看過哪些老火車？",
+    "followUpQuestion": "那時候都搭火車去哪裡？",
+    "imagePrompt": "Historical Taiwanese scene involving 老火車, authentic people and everyday objects",
+    "assetPath": "assets/topics/railway.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Alishan_Taiwan_Alishan-Forest-Railway-03b.jpg",
+      "title": "File:Alishan Taiwan Alishan-Forest-Railway-03b.jpg",
+      "creator": "CEphoto, Uwe Aranas",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+      "license": "CC BY-SA 3.0"
+    }
+  },
+  {
+    "topicId": "opera",
+    "title": "歌仔戲",
+    "question": "以前在哪裡看歌仔戲？",
+    "followUpQuestion": "最喜歡哪個角色或哪齣戲？",
+    "imagePrompt": "Historical Taiwanese scene involving 歌仔戲, authentic people and everyday objects",
+    "assetPath": "assets/topics/opera.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Taiwanese_Ke-Tse_Opera_at_Mazu_temple.jpg",
+      "title": "File:Taiwanese Ke-Tse Opera at Mazu temple.jpg",
+      "creator": "Sean Chiu",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "license": "CC BY-SA 4.0"
+    }
+  },
+  {
+    "topicId": "harvest",
+    "title": "割稻",
+    "question": "以前割稻時大家怎麼分工？",
+    "followUpQuestion": "忙完後都吃什麼？",
+    "imagePrompt": "Historical Taiwanese scene involving 割稻, authentic people and everyday objects",
+    "assetPath": "assets/topics/harvest.jpg",
+    "illustrative": false,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Rice_harvesting_in_Tamsui_1970.jpg",
+      "title": "File:Rice harvesting in Tamsui 1970.jpg",
+      "creator": "蔡坤煌（提供者：蔡葉偉）",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/3.0",
+      "license": "CC BY-SA 3.0"
+    }
+  },
+  {
+    "topicId": "market",
+    "title": "菜市場",
+    "question": "以前去菜市場最常買什麼？",
+    "followUpQuestion": "還記得熟悉的攤販嗎？",
+    "imagePrompt": "Historical Taiwanese scene involving 菜市場, authentic people and everyday objects",
+    "assetPath": "assets/topics/market.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Taitung_City_Kaifeng_Market01.jpg",
+      "title": "File:Taitung City Kaifeng Market01.jpg",
+      "creator": "Eric Deng",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "license": "CC BY-SA 4.0"
+    }
+  },
+  {
+    "topicId": "school",
+    "title": "校外教學",
+    "question": "以前上學有去過校外教學嗎？",
+    "followUpQuestion": "還記得一起出遊的同學嗎？",
+    "imagePrompt": "Historical Taiwanese scene involving 校外教學, authentic people and everyday objects",
+    "assetPath": "assets/topics/school.jpg",
+    "illustrative": false,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:School_children_on_graduation_trip_at_the_Taiwan_Provincial_Museum.jpg",
+      "title": "File:School children on graduation trip at the Taiwan Provincial Museum.jpg",
+      "creator": "Unknown authorUnknown author",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "",
+      "license": "Public domain"
+    }
+  },
+  {
+    "topicId": "chess",
+    "title": "下棋",
+    "question": "以前有和朋友一起下棋嗎？",
+    "followUpQuestion": "通常在哪裡下棋？",
+    "imagePrompt": "Historical Taiwanese scene involving 下棋, authentic people and everyday objects",
+    "assetPath": "assets/topics/chess.jpg",
+    "illustrative": false,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Students_of_the_Taihoku_High_School_playing_chess.jpg",
+      "title": "File:Students of the Taihoku High School playing chess.jpg",
+      "creator": "Unknown authorUnknown author",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "",
+      "license": "Public domain"
+    }
+  },
+  {
+    "topicId": "newyear",
+    "title": "辦年貨",
+    "question": "以前過年前都去哪裡辦年貨？",
+    "followUpQuestion": "家裡會準備哪些好吃的？",
+    "imagePrompt": "Historical Taiwanese scene involving 辦年貨, authentic people and everyday objects",
+    "assetPath": "assets/topics/newyear.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:2009-01-21_Taipei_Lunar_New_Year_Festival.jpg",
+      "title": "File:2009-01-21 Taipei Lunar New Year Festival.jpg",
+      "creator": "POHAN CHEN",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "license": "CC BY 2.0"
+    }
+  },
+  {
+    "topicId": "dragonboat",
+    "title": "龍舟",
+    "question": "以前端午節有去看龍舟嗎？",
+    "followUpQuestion": "當天還會做哪些事情？",
+    "imagePrompt": "Historical Taiwanese scene involving 龍舟, authentic people and everyday objects",
+    "assetPath": "assets/topics/dragonboat.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Dragon_Boat_Race_Team_Rowers_aboarding_Boat_before_Race_20170530fb.jpg",
+      "title": "File:Dragon Boat Race Team Rowers aboarding Boat before Race 20170530fb.jpg",
+      "creator": "玄史生",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "license": "CC0"
+    }
+  },
+  {
+    "topicId": "cake",
+    "title": "鳳梨酥",
+    "question": "以前會在什麼時候吃鳳梨酥？",
+    "followUpQuestion": "還記得喜歡的糕餅店嗎？",
+    "imagePrompt": "Historical Taiwanese scene involving 鳳梨酥, authentic people and everyday objects",
+    "assetPath": "assets/topics/cake.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Taiwanese_Pineapple_Cake_001.jpg",
+      "title": "File:Taiwanese Pineapple Cake 001.jpg",
+      "creator": "Ocdp",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "license": "CC0"
+    }
+  },
+  {
+    "topicId": "street",
+    "title": "老街",
+    "question": "以前住的街上有哪些店？",
+    "followUpQuestion": "有沒有最熟悉的鄰居？",
+    "imagePrompt": "Historical Taiwanese scene involving 老街, authentic people and everyday objects",
+    "assetPath": "assets/topics/street.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Fencihu_Old_Town_01.jpg",
+      "title": "File:Fencihu Old Town 01.jpg",
+      "creator": "Jill Chen",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by/2.0",
+      "license": "CC BY 2.0"
+    }
+  },
+  {
+    "topicId": "weaving",
+    "title": "織布",
+    "question": "以前看過或學過織布嗎？",
+    "followUpQuestion": "是誰教您的？",
+    "imagePrompt": "Historical Taiwanese scene involving 織布, authentic people and everyday objects",
+    "assetPath": "assets/topics/weaving.jpg",
+    "illustrative": true,
+    "attribution": {
+      "originalUrl": "https://commons.wikimedia.org/wiki/File:Traditional_Weaving_Machine_of_the_Aborigines_in_Taiwan.jpg",
+      "title": "File:Traditional Weaving Machine of the Aborigines in Taiwan.jpg",
+      "creator": "H. H. Tsai",
+      "source": "Wikimedia Commons",
+      "licenseUrl": "https://creativecommons.org/licenses/by-sa/4.0",
+      "license": "CC BY-SA 4.0"
+    }
+  }
+]
