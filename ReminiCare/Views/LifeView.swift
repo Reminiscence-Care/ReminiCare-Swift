@@ -60,6 +60,7 @@ struct LifeView: View {
         case .evaluation: EvaluationStage(session: session, width: width)
         case .revisionRecording: RevisionStage(session: session, width: width)
         case .revisionGenerating: LoadingStage(message: "正在調整照片…", width: width)
+        case .transcriptConfirmation: TranscriptConfirmationStage(session: session, width: width)
         case .summary: SummaryStage(session: session, width: width, onDone: onDone)
         }
     }
@@ -195,6 +196,10 @@ private struct TranscriptionFeedback: View {
             if session.isTranscribing {
                 ProgressView().frame(maxWidth: 320)
                 Text("辨識中 \(session.transcriptionComplete)/\(session.transcriptionTotal)").font(.system(size: 20))
+            }
+            if session.isCorrecting {
+                ProgressView().frame(maxWidth: 320)
+                Text("正在校正辨識文字…").font(.system(size: 20))
             }
             if session.stage == .introduction, let error = session.errorMessage {
                 Text(error).font(.system(size: 18)).foregroundStyle(.red).multilineTextAlignment(.center)
@@ -361,6 +366,67 @@ private struct RevisionStage: View {
                 Text("錄音中 \(session.recordSeconds) 秒").font(.system(size: Theme.body(width)))
             }
             RecordButton(session: session) { await session.startRevisionRecording() }.padding(.top, 16)
+        }
+    }
+}
+
+/// Shows what was heard before it becomes a photo: confirm, edit or record again.
+private struct TranscriptConfirmationStage: View {
+    let session: LifeSession
+    let width: CGFloat
+    @State private var editing = false
+    @State private var draft = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            Text(session.confirmingRevision ? "想修改的地方" : session.currentQuestion)
+                .font(.system(size: Theme.body(width)))
+                .foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.center)
+            Text("我聽到的是：")
+                .font(.system(size: Theme.title(width)))
+                .padding(.top, 24)
+            Text(session.heardTranscript)
+                .font(.system(size: Theme.action(width)))
+                .lineSpacing(8)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 34).padding(.vertical, 28)
+                .frame(maxWidth: .infinity)
+                .background(Theme.paleYellow, in: RoundedRectangle(cornerRadius: 32))
+                .padding(.top, 20)
+            Spacer(minLength: 24)
+            HStack(spacing: 28) {
+                RoundAction(label: "對，繼續", systemImage: "checkmark") { await session.confirmTranscript() }
+                RoundAction(label: "修改文字", systemImage: "pencil") {
+                    draft = session.heardTranscript
+                    editing = true
+                }
+                RoundAction(label: "重新錄音", systemImage: "mic.fill") { session.rerecordTranscript() }
+            }
+            .padding(.top, 16)
+        }
+        .sheet(isPresented: $editing) {
+            NavigationStack {
+                TextEditor(text: $draft)
+                    .font(.system(size: 28))
+                    .padding(16)
+                    .navigationTitle("修改辨識文字")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") { editing = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("完成") {
+                                editing = false
+                                let text = draft
+                                Task { await session.submitEditedTranscript(text) }
+                            }
+                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                    }
+            }
         }
     }
 }

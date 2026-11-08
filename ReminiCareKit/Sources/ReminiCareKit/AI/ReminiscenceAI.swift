@@ -128,6 +128,81 @@ public struct ReminiscenceAI: Sendable {
         ], temperature: 0.75, maxTokens: 100)
     }
 
+    // MARK: Transcript correction
+
+    public enum CorrectionOutcome: Sendable, Equatable {
+        case corrected(String), unchanged, rejected, timedOut, failed
+    }
+
+    public static let correctionTimeout: Duration = .seconds(20)
+
+    /// Fixes obvious speech-recognition errors (homophones, near-sounding
+    /// words, broken phrases) using the question as context. Never throws:
+    /// any failure, timeout or implausible rewrite means "keep the original".
+    public func correctTranscript(
+        question: String, transcript: String, timeout: Duration = correctionTimeout
+    ) async -> CorrectionOutcome {
+        let messages = [
+            LlmMessage("system",
+                "你是語音辨識校對員。逐字稿是台灣長輩用國語或台語口語回答問題，經語音辨識後可能有同音字、近音字或斷句錯誤，"
+                + "例如問題問「有沒有織過布」，辨識成「我沒有字過，不」，應改成「我沒有織過布」。"
+                + "請依照問題的脈絡，只修正明顯的辨識錯字與斷句。"
+                + "不得新增或刪除內容，不得改寫、潤飾或摘要，不得回答問題，保留口語用詞與語氣；不確定時保留原文。"
+                + "只輸出 JSON：{\"text\":\"校正後的逐字稿\"}。"),
+            LlmMessage("user", "問題：\(question)\n逐字稿：\(transcript)"),
+        ]
+        let raw: String?
+        do {
+            raw = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask {
+                    try await self.ask("transcriptCorrection", messages, temperature: 0.1, maxTokens: 1024, jsonObject: true)
+                }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+                defer { group.cancelAll() }
+                return try await group.next() ?? nil
+            }
+        } catch {
+            return .failed
+        }
+        guard let raw else { return .timedOut }
+        guard let text = Self.validateCorrection(raw, original: transcript, question: question) else { return .rejected }
+        return text == transcript.trimmingCharacters(in: .whitespacesAndNewlines) ? .unchanged : .corrected(text)
+    }
+
+    /// The corrected text, or nil when the reply is unusable or rewrites too
+    /// much to be a recognition fix.
+    static func validateCorrection(_ raw: String, original: String, question: String) -> String? {
+        guard let data = try? ProviderResponseParser.decodeJSONObject(raw, requiredKey: "text"),
+              let text = (data["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty
+        else { return nil }
+        func core(_ value: String) -> Int { value.filter { $0.isLetter || $0.isNumber }.count }
+        let before = core(original)
+        guard abs(core(text) - before) <= max(4, before * 3 / 10) else { return nil }
+        let source = original + question
+        for run in asciiRuns(text) where !source.contains(run) { return nil }
+        return text
+    }
+
+    /// Runs of ASCII letters and digits, e.g. names or numbers the model may invent.
+    private static func asciiRuns(_ text: String) -> [String] {
+        var runs: [String] = []
+        var current = ""
+        for character in text {
+            if character.isASCII && (character.isLetter || character.isNumber) {
+                current.append(character)
+            } else if !current.isEmpty {
+                runs.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { runs.append(current) }
+        return runs
+    }
+
     public func sceneData(from transcript: String) async throws -> SceneData {
         let raw = try await ask("sceneData", [
             LlmMessage("system", "把回憶整理成 JSON，只能包含 scene、era、location、keywords；keywords 是繁體中文陣列。"),

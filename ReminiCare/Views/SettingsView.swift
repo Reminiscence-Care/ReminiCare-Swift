@@ -108,6 +108,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Section("語音辨識文字") {
+                    Toggle("用 AI 校正辨識錯字", isOn: toggle(ConfigKey.transcriptCorrection, default: true))
+                    Text("依照當下的問題修正同音、近音錯字（例如「字過，不」→「織過布」），不增刪內容。會多花幾秒，使用上方的語言模型與 Key；失敗時沿用原文。自我介紹的稱呼不會自動改字。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("生圖前確認辨識文字", isOn: toggle(ConfigKey.transcriptConfirmation, default: false))
+                    Text("開啟後，每次回答與修圖要求都會先顯示「我聽到的是…」，按「對，繼續」才產生照片，也可以修改文字或重新錄音。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let validationError {
                     Section { Text(validationError).foregroundStyle(.red) }
                 }
@@ -151,6 +159,14 @@ struct SettingsView: View {
 
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { values[key] ?? "" }, set: { values[key] = $0 })
+    }
+
+    /// A "true"/"false" setting as a switch; an empty value means `default`.
+    private func toggle(_ key: String, default on: Bool) -> Binding<Bool> {
+        Binding(
+            get: { (values[key] ?? "").isEmpty ? on : values[key] == "true" },
+            set: { values[key] = $0 ? "true" : "false" }
+        )
     }
 
     private func help(_ key: String) -> String? {
