@@ -49,7 +49,9 @@ find "$work" -mindepth 1 -maxdepth 1 ! -name .build -exec rm -rf {} +   # keep t
 
 # 4. Stamp the commit into the app so problem reports say which code is running.
 commit="$(git -c safe.directory='*' -C "$repo" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-if [ "$commit" != unknown ] && [ -n "$(git -c safe.directory='*' -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+# core.filemode=false: every file on /mnt/d looks executable to WSL, which
+# git would otherwise report as a change to every file.
+if [ "$commit" != unknown ] && [ -n "$(git -c safe.directory='*' -c core.filemode=false -C "$repo" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
     commit="$commit-dirty"
 fi
 sed -i "s|<key>CFBundleDisplayName</key>|<key>ReminiCareCommit</key>\n\t<string>$commit</string>\n\t<key>CFBundleDisplayName</key>|" \
