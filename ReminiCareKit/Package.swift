@@ -11,7 +11,7 @@ let package = Package(
     targets: [
         .target(
             name: "ReminiCareKit",
-            resources: [.copy("Resources/Topics")]
+            resources: [.copy("Resources/Topics"), .copy("Resources/HomeImage.png")]
         ),
         .testTarget(
             name: "ReminiCareKitTests",

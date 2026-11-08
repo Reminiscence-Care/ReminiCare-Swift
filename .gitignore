@@ -6,3 +6,5 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .env
+/xtool/
+/.bsp/

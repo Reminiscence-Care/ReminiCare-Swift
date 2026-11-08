@@ -45,6 +45,12 @@ public struct ReminiscenceTopic: Sendable, Hashable, Identifiable {
     }
 }
 
+/// Images bundled with the package, so the app needs no asset catalog
+/// (asset catalogs can only be compiled on macOS).
+public enum BundledImage {
+    public static var home: URL? { Bundle.module.url(forResource: "HomeImage", withExtension: "png") }
+}
+
 public struct TopicCatalog: Sendable {
     public let topics: [ReminiscenceTopic]
     public init(topics: [ReminiscenceTopic]) { self.topics = topics }

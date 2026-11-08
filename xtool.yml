@@ -1,0 +1,7 @@
+version: 1
+# xtool rewrites this per signing team, so it does not clash with the Xcode build.
+bundleID: xyz.jessyu.reminicare.ipad
+product: ReminiCare
+infoPath: Config/xtool-Info.plist
+iconPath: ReminiCare/Assets.xcassets/AppIcon.appiconset/icon-1024.png
+skipLSP: true

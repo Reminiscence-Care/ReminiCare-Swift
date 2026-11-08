@@ -1,0 +1,85 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 專案定位
+
+ReminiCare Flutter App 的 iPadOS 原生重寫版（SwiftUI，iPadOS 17+，只支援 iPad）。與使用者溝通用繁體中文。
+
+- Flutter 原版在 `../ReminiCare-AI-APP`，**不修改它**，但它是產品行為的參考實作。移植或調整流程前，先看該 repo 的 `AGENTS.md`（不可破壞的行為、隱私規則）、`PROJECT_CONTEXT.md`（外部語音／LLM 服務狀態表）、`docs/AI_HANDOFF.md`（最新進度與已知問題）。那些交接內容描述的是 Flutter 版，不代表本 repo 已實作。
+- 刻意沒移植：Debug 固定測試流程與測試音檔、喚醒詞設定、舊 SharedPreferences 回憶搬移。設定與回憶不從 Flutter 版帶過來。
+- Bundle ID `xyz.jessyu.reminicare.ipad`，可與 Flutter 版並存比對。
+
+## 指令
+
+```sh
+swift test --package-path ReminiCareKit                          # 全部邏輯測試
+swift test --package-path ReminiCareKit --filter LifeSessionTests # 單一 Suite
+swift test --package-path ReminiCareKit --filter "ParserTests/ignoresReasoningOnlyResponses"
+xcodebuild -project ReminiCare.xcodeproj -scheme ReminiCare \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+```
+
+- 測試用 Swift Testing（`@Suite`／`@Test`／`#expect`），不是 XCTest。
+- **開發機是 Windows。** ReminiCareKit 依賴 AVFoundation、Security（Keychain）、Network、Observation 等 Apple 框架，本機 Windows Swift 無法執行 `swift test`，也沒有 Xcode。邏輯測試靠 GitHub Actions（macOS）：
+  - `.github/workflows/check.yml`：push main／PR 時跑 `swift test` 與模擬器 build。
+  - `.github/workflows/build-ipa.yml`：推 `v*` tag 產出未簽章 IPA 並建立 Release（用 AltStore 安裝），版本號取自 tag。
+- 回報時明確區分「已改」「CI 已通過」「已在 iPad 實機驗證」；本機沒跑過就不要說測試通過。
+- Debug 啟動參數 `-skipConfigCheck`：不填金鑰也能進對話畫面看版面（`HomeView`）。
+
+### 用 xtool 從 WSL 直接裝到 iPad
+
+```sh
+wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/ReminiCare-Swift/scripts/xtool-wsl.sh            # 建置、安裝、啟動
+wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/ReminiCare-Swift/scripts/xtool-wsl.sh build --ipa
+```
+
+- xtool（WSL Debian 裡，已登入使用者的免費 Apple ID）只吃 SwiftPM，所以根目錄另有 `Package.swift`、`xtool.yml`、`Config/xtool-Info.plist`，只給 xtool 用；Xcode／CI 仍用 `.xcodeproj`。改 Info.plist 設定時兩邊都要改。
+- 因此 App target 不能用只有 Xcode 才有的東西：`@Entry` 等 SwiftUI macro、asset catalog（圖片放 ReminiCareKit 資源，經 `BundledImage` 讀取；App icon 由 `xtool.yml` 指定）。
+- iPad 插在 Windows 上，**不要**用 usbipd 轉進 WSL：大量傳輸會卡住（`muxError`／`RX transfer stalled`）。腳本用 `scripts/usbmuxd_relay.py` 把 Windows「Apple Mobile Device Service」（127.0.0.1:27015）轉進 WSL 的 27115。WSL 端絕不能聽 27015：WSL 會把 localhost 埠轉到 Windows，使 Apple 服務起不來並造成 bridge 無限迴圈。
+- 需要 Apple Mobile Device Service 在執行（啟動要系統管理員權限，請使用者做）。服務剛起來時要等幾秒才看得到 iPad。
+- 從 Windows 呼叫 WSL 時一律執行腳本檔，不要把含 `$變數` 的指令塞進 `wsl.exe -- bash -c "..."`：wsl.exe 會先把變數展開成空字串（曾因此讓 `find … -exec rm -rf` 清空整個 repo）。
+- 免費帳號一台裝置最多 3 個自簽 App；滿了會在 Verifying 階段失敗，要請使用者決定刪哪個。
+
+## 架構
+
+兩層：`ReminiCare/`（App target，只有 SwiftUI 畫面）依賴本地 Swift Package `ReminiCareKit/`（所有邏輯，不含畫面）。新邏輯放 Kit 並寫測試；App 只負責呈現與呼叫 `LifeSession` 的公開方法。
+
+- Xcode 專案用 file-system synchronized groups（objectVersion 77），在 `ReminiCare/` 新增檔案不必改 `project.pbxproj`。Info.plist 大多由 build settings 產生；`Config/Info.plist` 只放 ATS 例外（成大服務走 HTTP＋IP）。
+- Swift 6 語言模式，嚴格並行檢查：UI 狀態類別是 `@MainActor`，檔案／快取是 `actor`（`MemoryRepository`、`TtsCache`），跨執行緒可變狀態用 `LockedValue`（`Support/Concurrency.swift`）。
+
+### 對話流程 `Session/LifeSession.swift`
+
+`@MainActor @Observable` 的狀態機，`LifeStage`：topicLoading → topicSelection → introduction → question → imageGenerating → evaluation ⇄ revisionRecording／revisionGenerating → summary。
+
+- 所有屬性 `private(set)`，畫面只能呼叫具名方法（`selectTopic`、`startAnswerRecording`、`chooseLike` …）。
+- 每次重新開始都遞增 `session`；任何 `await` 之後更新狀態前必須 `guard isCurrent(current)`，避免舊結果覆蓋新流程。新增非同步步驟沿用此模式。
+- 依賴全部由建構子注入；`LifeSession.live()` 透過 `ServiceFactory` 依目前設定組出正式實作。測試直接注入 fakes。
+
+### 服務組裝 `Session/ServiceFactory.swift`
+
+依 `ConfigStore` 的 provider 選擇建立：LLM（OpenAI 相容，NVIDIA／Gemini／OpenAI／custom）、生圖（Cloudflare Worker 或 OpenAI 相容）、語音（`selectedSpeechProvider` = `ncku` 或雅婷）。台語 TTS 備援鏈：成大 9998 原文 → LLM 轉台羅（沒有轉台羅 Key 就跳過）→ 舊服務 10012。`missingConfiguration()` 決定能否開始對話。
+
+### 可替換的邊界（測試時用 fake）
+
+- `LlmClient`、`ImageGenerating`、`SpeechRecognizer`、`SpeechSynthesizer`：provider 抽象。
+- `HTTPSending`、`TCPExchanging`、`YatingChannel`：網路傳輸層（成大 TTS 是 TCP，雅婷 STT 是 WebSocket）。
+- `VoiceIO`（`Audio/VoiceAssistant.swift`）：錄音＋播放的單一入口，保證兩者不同時占用音訊；底下是 `RecorderPort`／`PlaybackPort`。`RecordingController` 處理靜音偵測、最長秒數，按停止後多錄 0.8 秒（取消則不多錄）。
+- `SecretStore`：正式用 Keychain，測試用 `MemorySecretStore`。
+- 共用 fakes 在 `Tests/ReminiCareKitTests/Fakes.swift`。
+
+### 設定與資料
+
+- `ConfigStore`：`secretKeys` 裡的值只存 Keychain，其他存 UserDefaults；儲存是全有或全無（失敗會回滾）。欄位定義與預設值都在 `ConfigStore.fields`。
+- 主題圖庫是 Kit 內的資源 `Resources/Topics/`（`catalog.json`＋圖片，用 `Bundle.module` 讀取）。主題本地抽四個、離線可見；LLM 只替主題產生問題，失敗時用 catalog 原問題。
+- `MemoryRepository` 保存回憶與圖片（`reminicare_images/…` 相對於 documents）；`TtsCache` 的快取識別包含 provider，避免不同聲音混用。
+- `WavAudio`：STT 需要 16 kHz mono 16-bit PCM；也要接受 AVFoundation 寫出的 `WAVE_FORMAT_EXTENSIBLE`。
+
+### App Log `Support/AppLog.swift`
+
+全 App 共用、記憶體內、有界的執行紀錄，從每個畫面右上角「Log」（`.logToolbar()`）以 fullScreenCover 開啟，不會中斷進行中的對話。只記固定的 `LogArea`／`LogEvent` 與數字欄位（狀態碼、時長、大小、音量峰值），不記 Key、Token、prompt 或回應原文；STT 辨識文字只走專用的 transcription 事件。新增 Log 時沿用這些列舉，不要記任意字串。
+
+## 外部服務注意事項
+
+- 成大 STT／TTS 由實驗室管理，使用者無法修改；預設是未加密的 HTTP／TCP，這是已知限制。不要自行換端點、架代理或探測伺服器極限。
+- 呼叫真實 STT／LLM／生圖服務會花額度並傳出資料，執行前需要使用者當次同意；優先用 fake 測試。
