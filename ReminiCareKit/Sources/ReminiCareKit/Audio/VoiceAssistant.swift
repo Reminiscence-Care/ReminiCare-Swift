@@ -26,7 +26,10 @@ public final class NativePlayback: NSObject, PlaybackPort, AVAudioPlayerDelegate
         self.player = player
         return await withCheckedContinuation { continuation in
             self.continuation = continuation
-            if !player.play() { finish(.failed) }
+            if !player.play() {
+                AppLog.shared.record(.tts, .failed, detail: "playStartFailed")
+                finish(.failed)
+            }
         }
     }
 
@@ -49,7 +52,10 @@ public final class NativePlayback: NSObject, PlaybackPort, AVAudioPlayerDelegate
 
     public nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         let id = ObjectIdentifier(player)
-        Task { @MainActor in self.playerEnded(id, .failed) }
+        Task { @MainActor in
+            AppLog.shared.record(.tts, .failed, detail: "playerError")
+            self.playerEnded(id, .failed)
+        }
     }
 
     private func playerEnded(_ id: ObjectIdentifier, _ outcome: PlaybackOutcome) {
@@ -107,13 +113,13 @@ public final class VoiceAssistant: VoiceIO {
         self.identity = identity
         self.cache = cache
         self.playback = playback ?? NativePlayback()
+        // Real input is described only with the real recorder (not in tests).
+        let describeInput: (() -> AudioRouteSnapshot?)? = recorder == nil ? { AudioRouteSnapshot.current() } : nil
         recording = RecordingController(
             port: recorder ?? NativeRecorder(),
-            createURL: {
-                let micros = Int(Date().timeIntervalSince1970 * 1_000_000)
-                return FileManager.default.temporaryDirectory.appending(path: "reminicare_chat_smart_\(micros).wav")
-            },
-            activate: activate ?? VoiceAssistant.activateSession
+            createURL: { VoiceAssistant.recordingURL() },
+            activate: activate ?? { try VoiceAssistant.activateSession() },
+            describeInput: describeInput
         )
         recording.onWarning = { [weak self] in self?.onWarning?($0) }
         recording.onState = { [weak self] state in
@@ -129,7 +135,14 @@ public final class VoiceAssistant: VoiceIO {
 
     public var isRecording: Bool { recording.state == .recording }
 
-    nonisolated static func activateSession() throws {
+    /// Temporary WAV for one recording; stale ones are cleaned by `LifeSession`.
+    public nonisolated static func recordingURL() -> URL {
+        let micros = Int(Date().timeIntervalSince1970 * 1_000_000)
+        return FileManager.default.temporaryDirectory.appending(path: "reminicare_chat_smart_\(micros).wav")
+    }
+
+    /// The audio session every recording and playback uses.
+    public nonisolated static func activateSession() throws {
         #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetooth])
@@ -143,13 +156,26 @@ public final class VoiceAssistant: VoiceIO {
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
             let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt).flatMap(AVAudioSession.InterruptionType.init(rawValue:))
             guard type == .began else { return }
-            AppLog.shared.record(.recording, .warning, detail: "interrupted")
+            AppLog.shared.record(.recording, .warning, detail: "interruptionBegan")
             Task { @MainActor in await self?.interrupt() }
         })
         observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
             let reason = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt).flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))
-            guard reason == .oldDeviceUnavailable else { return }
-            AppLog.shared.record(.recording, .warning, detail: "routeChanged")
+            let input = AudioRouteSnapshot.current()?.input.rawValue
+            Task { @MainActor in
+                guard let self, self.isRecording else { return }
+                // Any input change mid-recording is logged with the new input,
+                // so a switch to a Bluetooth headset shows up next to the result.
+                AppLog.shared.record(.recording, .warning, detail: "inputDeviceChanged")
+                if let input { AppLog.shared.record(.recording, .progress, detail: input) }
+                if reason == .oldDeviceUnavailable {
+                    AppLog.shared.record(.recording, .warning, detail: "routeChanged")
+                    await self.interrupt()
+                }
+            }
+        })
+        observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            AppLog.shared.record(.recording, .warning, detail: "mediaServicesReset")
             Task { @MainActor in
                 if self?.isRecording == true { await self?.interrupt() }
             }

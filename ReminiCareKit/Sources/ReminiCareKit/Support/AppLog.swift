@@ -49,6 +49,14 @@ public struct AppLogEntry: Sendable, Identifiable {
     public var statusCode: Int?
     /// 錄音期間麥克風最大音量（dBFS）；約 -50 以下代表幾乎沒收到聲音。
     public var peakDb: Int?
+    /// 平均音量（dBFS）。
+    public var avgDb: Int?
+    /// 有聲音的時間比例（%）。
+    public var loudPercent: Int?
+    /// 錄音樣本完全為 0 的比例（%）；接近 100 代表麥克風沒有訊號。
+    public var zeroPercent: Int?
+    public var sampleRate: Int?
+    public var channels: Int?
     public var detail: String?
     public var transcript: String?
     public var transcriptTruncated = false
@@ -77,6 +85,11 @@ public struct AppLogEntry: Sendable, Identifiable {
         if let complete, let total { metrics.append("進度=\(complete)/\(total)") }
         if let statusCode { metrics.append("HTTP=\(statusCode)") }
         if let peakDb { metrics.append("最大音量=\(peakDb) dB") }
+        if let avgDb { metrics.append("平均=\(avgDb) dB") }
+        if let loudPercent { metrics.append("有聲=\(loudPercent)%") }
+        if let zeroPercent { metrics.append("全零=\(zeroPercent)%") }
+        if let sampleRate { metrics.append("取樣率=\(sampleRate) Hz") }
+        if let channels { metrics.append("聲道=\(channels)") }
         if let transcript {
             let encoded = (try? String(data: JSONEncoder().encode(transcript), encoding: .utf8)) ?? "\"\""
             metrics.append("文字=\(encoded)")
@@ -149,6 +162,54 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "fallbackFollowUp": "AI 延伸問題失敗，改用預設問題",
         "imageSave": "圖片存檔失敗",
         "imageEdit": "改圖",
+        // 錄音診斷
+        "inputBuiltIn": "輸入裝置：內建麥克風",
+        "inputBluetooth": "輸入裝置：藍牙耳機",
+        "inputWired": "輸入裝置：有線耳機",
+        "inputUsb": "輸入裝置：USB 音訊裝置",
+        "inputOther": "輸入裝置：其他",
+        "inputNone": "輸入裝置：找不到麥克風",
+        "inputUnavailable": "系統回報目前沒有可用的麥克風",
+        "recordingFileMissing": "沒有產生錄音檔",
+        "notWav": "錄音檔不是有效的 WAV",
+        "recordingIncomplete": "錄音檔不完整（錄音器沒有正常結束）",
+        "formatMismatch": "錄音格式不是 16 kHz 單聲道 16-bit PCM",
+        "recordingTooShort": "錄音太短（不到 0.3 秒）",
+        "digitalSilence": "整段錄音全是 0：麥克風沒有任何訊號（權限、被其他 App 佔用或接了沒有麥克風的裝置）",
+        "micSilent": "整段錄音幾乎無聲，麥克風沒收到聲音",
+        "tooQuiet": "錄音音量很小，語音辨識可能聽不到",
+        "amplitudeUnavailable": "讀不到麥克風音量（自動停頓偵測停用）",
+        "interruptionBegan": "被系統中斷（來電、Siri 或其他 App）",
+        "inputDeviceChanged": "錄音中輸入裝置變更",
+        "mediaServicesReset": "系統音訊服務重新啟動",
+        "recordingTest": "設定頁錄音測試",
+        // 語音辨識／合成
+        "yatingToken": "雅婷 STT 取得連線 Token",
+        "yatingSocketFailed": "雅婷 STT WebSocket 連線失敗",
+        "yatingReadyTimeout": "雅婷 STT 伺服器未回應就緒",
+        "yatingServerError": "雅婷 STT 伺服器回報錯誤",
+        "yatingClosedEarly": "雅婷 STT 連線在結果完成前關閉",
+        "yatingEof": "雅婷 STT 辨識完成",
+        "emptyTranscript": "辨識完成但沒有任何文字（請對照上方錄音那行的音量與全零比例）",
+        "emptyAudio": "服務回傳空音訊",
+        "playStartFailed": "播放器無法開始播放",
+        "playerError": "播放器發生錯誤",
+        // LLM 用途
+        "questions": "LLM：產生主題問題",
+        "elderName": "LLM：擷取稱呼",
+        "followUp": "LLM：產生延伸問題",
+        "sceneData": "LLM：整理回憶內容",
+        // 服務狀態檢查
+        "healthCheck": "服務狀態檢查",
+        "healthOk": "服務檢查：可用",
+        "healthNotConfigured": "服務檢查：尚未設定",
+        "healthInvalidKey": "服務檢查：API Key 無效或已過期",
+        "healthQuotaExhausted": "服務檢查：額度用完或方案到期",
+        "healthRateLimited": "服務檢查：請求太頻繁",
+        "healthUnreachable": "服務檢查：連不上服務",
+        "healthServerError": "服務檢查：服務端錯誤",
+        "healthSlow": "服務檢查：回應過慢",
+        "healthUnverifiable": "服務檢查：已設定，但無法免費驗證",
     ]
 
     public func record(
@@ -161,6 +222,11 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         total: Int? = nil,
         statusCode: Int? = nil,
         peakDb: Int? = nil,
+        avgDb: Int? = nil,
+        loudPercent: Int? = nil,
+        zeroPercent: Int? = nil,
+        sampleRate: Int? = nil,
+        channels: Int? = nil,
         detail: String? = nil
     ) {
         append { id, time, elapsed in
@@ -168,8 +234,24 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
                 id: id, time: time, elapsed: elapsed, area: area, event: event,
                 operationId: operationId, durationMs: durationMs, bytes: bytes,
                 complete: complete, total: total, statusCode: statusCode, peakDb: peakDb,
+                avgDb: avgDb, loudPercent: loudPercent, zeroPercent: zeroPercent,
+                sampleRate: sampleRate, channels: channels,
                 detail: detail.map { Self.detailLabels[$0] == nil ? "unexpected" : $0 }
             )
+        }
+    }
+
+    /// One line describing a recording file, plus a warning when its verdict is not ok.
+    public func recordInspection(_ inspection: WavInspection, operationId: Int?, event: LogEvent = .progress, detail: String? = nil) {
+        record(
+            .recording, event, operationId: operationId,
+            durationMs: Int((inspection.seconds * 1000).rounded()), bytes: inspection.exists ? inspection.fileBytes : nil,
+            peakDb: inspection.peakDb.map { Int($0.rounded()) }, avgDb: inspection.rmsDb.map { Int($0.rounded()) },
+            loudPercent: inspection.loudPercent, zeroPercent: inspection.zeroPercent,
+            sampleRate: inspection.sampleRate, channels: inspection.channels, detail: detail
+        )
+        if inspection.verdict != .ok {
+            record(.recording, .warning, operationId: operationId, detail: inspection.verdict.rawValue)
         }
     }
 

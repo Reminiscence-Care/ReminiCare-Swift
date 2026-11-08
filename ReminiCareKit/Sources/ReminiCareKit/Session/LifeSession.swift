@@ -393,6 +393,7 @@ public final class LifeSession {
             hasInterruptedRecording = false
             audioWarning = nil
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                AppLog.shared.record(.stt, .warning, operationId: session, detail: "emptyTranscript")
                 errorMessage = "沒有辨識到語音，請重新錄音。"
                 if stage == .introduction { introductionState = .ready }
                 return

@@ -80,6 +80,18 @@ public final class ConfigStore: @unchecked Sendable {
         self.secrets = secrets
     }
 
+    /// In-memory snapshot, e.g. unsaved settings-form values for a connection
+    /// test. Backed by a throwaway store so an accidental `save` cannot touch
+    /// the real settings or Keychain.
+    public init(values: [String: String]) {
+        defaults = UserDefaults(suiteName: "reminicare.preview") ?? .standard
+        secrets = MemorySecretStore()
+        state.withValue {
+            $0.values = values
+            $0.revision = 1
+        }
+    }
+
     public var revision: Int { state.current.revision }
     public var snapshot: [String: String] { state.current.values }
     public func value(_ key: String) -> String { state.current.values[key] ?? "" }

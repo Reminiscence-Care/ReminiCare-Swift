@@ -10,6 +10,13 @@ public extension LlmClient {
     }
 }
 
+/// True when an error body talks about an exhausted quota or balance. The body
+/// is only matched, never logged.
+func isQuotaExhausted(_ body: Data) -> Bool {
+    String(decoding: body, as: UTF8.self)
+        .range(of: OpenAICompatibleLlmClient.quotaPattern, options: [.regularExpression, .caseInsensitive]) != nil
+}
+
 public struct OpenAICompatibleLlmClient: LlmClient {
     public let config: LlmProviderConfig
     public let apiKey: String
@@ -63,6 +70,8 @@ public struct OpenAICompatibleLlmClient: LlmClient {
         switch status {
         case 401, 403:
             throw AIServiceError(.authentication, "API Key 無效或沒有模型權限。\(ProviderResponseParser.errorDetail(data))", statusCode: status)
+        case 429 where isQuotaExhausted(data):
+            throw AIServiceError(.billing, "AI Provider 額度已用完或方案到期，請到 Provider 後台確認帳單。", statusCode: status)
         case 429:
             throw AIServiceError(.rateLimit, "API 使用量已達限制，請稍後再試。", statusCode: status)
         case 402:
@@ -82,6 +91,10 @@ public struct OpenAICompatibleLlmClient: LlmClient {
             finish == "length" ? "Provider 的輸出額度被推理內容用完，沒有產生最終答案。" : "Provider 沒有回傳文字內容。"
         )
     }
+
+    /// OpenAI answers 429 both for rate limits and for an exhausted balance
+    /// (`insufficient_quota`); Gemini says RESOURCE_EXHAUSTED with quota wording.
+    static let quotaPattern = "insufficient_quota|quota|billing|balance|credit"
 
     private func providerOptions() -> [String: Any] {
         guard config.id == "nvidia" else { return [:] }

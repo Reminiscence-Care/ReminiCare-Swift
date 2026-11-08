@@ -207,6 +207,8 @@ public struct OpenAICompatibleImageClient: ImageGenerating {
             let detail = ProviderResponseParser.errorDetail(data)
             switch response.statusCode {
             case 401, 403: throw AIServiceError(.authentication, "生圖 API Key 無效。\(detail)", statusCode: response.statusCode)
+            case 429 where isQuotaExhausted(data):
+                throw AIServiceError(.billing, "生圖 Provider 額度已用完或方案到期。\(detail)", statusCode: 429)
             case 429: throw AIServiceError(.rateLimit, "生圖使用量已達限制。", statusCode: 429)
             case 402: throw AIServiceError(.billing, "生圖 Provider 餘額不足或付款設定未完成。\(detail)", statusCode: 402)
             case 200..<300: break
