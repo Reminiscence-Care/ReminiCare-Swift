@@ -37,34 +37,53 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
     private struct Transcript: Sendable {
         var full = ""
         var current = ""
+        var sentences = 0
         var partial: String { (full + current).trimmingCharacters(in: .whitespacesAndNewlines) }
     }
 
     private enum Event { case ready, eof, none }
 
+    /// Which step a WebSocket failure happened in, for the App Log.
+    private enum Step { case connecting, streaming }
+
     public func transcribe(_ file: URL, progress: SttProgress?) async throws -> String {
         progress?(0, 1)
         let audio: WavAudio
         do { audio = try WavAudio.parse(Data(contentsOf: file)) } catch {
+            AppLog.shared.record(.stt, .requestFailed, detail: "invalidAudio")
             throw SttError(.invalidAudio, "錄音或辨識回應格式不正確。")
         }
-        let token = try await authToken()
+        let token = try await yatingToken(apiKey: apiKey(), http: http)
         guard let url = URL(string: "wss://asr.api.yating.tw/ws/v1/?token=\(token)") else {
             throw SttError(.invalidResponse, "雅婷 STT 驗證回應不正確。")
         }
         let channel = connect(url)
         defer { channel.close() }
         let transcript = LockedValue(Transcript())
+        let watch = Stopwatch()
+        let step = LockedValue(Step.connecting)
+        func logFailure(_ detail: String) {
+            AppLog.shared.record(.stt, .requestFailed, durationMs: watch.milliseconds, bytes: audio.pcm.count, detail: detail)
+        }
 
         @Sendable func handle(_ message: String?) throws -> Event {
             guard let message else {
+                AppLog.shared.record(.stt, .requestFailed, detail: "yatingClosedEarly")
                 throw SttError(.incomplete, "辨識連線未完整結束，請重試。", partialText: transcript.current.partial)
             }
             guard let data = message.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                AppLog.shared.record(.stt, .requestFailed, detail: "invalidResponse")
                 throw SttError(.invalidResponse, "雅婷回傳格式不正確。")
             }
-            if object["status"] as? String == "error" { throw SttError(.server, "雅婷辨識服務回報錯誤。") }
+            if object["status"] as? String == "error" {
+                // The message is only matched for quota wording, never logged.
+                let billing = yatingBillingPattern(message)
+                AppLog.shared.record(.stt, .requestFailed, detail: billing ? "billing" : "yatingServerError")
+                throw billing
+                    ? SttError(.authentication, "雅婷額度不足或方案已到期，請到雅婷後台確認。")
+                    : SttError(.server, "雅婷辨識服務回報錯誤。")
+            }
             var event = Event.none
             if object["status"] as? String == "ok" { event = .ready }
             if let pipe = object["pipe"] as? [String: Any] {
@@ -73,6 +92,7 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
                     if pipe["asr_final"] as? Bool == true {
                         state.full += state.current + "，"
                         state.current = ""
+                        state.sentences += 1
                     }
                 }
                 if pipe["asr_eof"] as? Bool == true { event = .eof }
@@ -81,9 +101,15 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
         }
 
         do {
-            try await withTimeout(.seconds(5)) {
-                while try handle(await channel.receive()) != .ready {}
+            do {
+                try await withTimeout(.seconds(5)) {
+                    while try handle(await channel.receive()) != .ready {}
+                }
+            } catch is TimeoutError {
+                logFailure("yatingReadyTimeout")
+                throw SttError(.timeout, "雅婷語音辨識伺服器沒有回應，請稍後重試。")
             }
+            step.withValue { $0 = .streaming }
             let pcm = audio.pcm
             let delay = sendDelay
             let sender = Task {
@@ -103,55 +129,98 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
         } catch let error as SttError {
             throw error
         } catch is TimeoutError {
+            logFailure("incomplete")
             throw SttError(.incomplete, "辨識尚未完整完成，請重試。", partialText: transcript.current.partial)
         } catch where isCancellation(error) {
             throw SttError(.cancelled, "已取消辨識。")
         } catch {
+            if step.current == .connecting {
+                logFailure("yatingSocketFailed")
+                throw SttError(.network, "無法連上雅婷語音辨識伺服器，請檢查網路後重試。")
+            }
+            logFailure("network")
             throw SttError(.network, "雅婷語音辨識失敗，請重試。", partialText: transcript.current.partial)
         }
+        let sentences = transcript.current.sentences
+        AppLog.shared.record(
+            .stt, .requestCompleted, durationMs: watch.milliseconds, bytes: audio.pcm.count,
+            complete: sentences, total: sentences, detail: "yatingEof"
+        )
         progress?(1, 1)
         return transcript.current.partial.replacingOccurrences(of: #"^[，\s]+|[，\s]+$"#, with: "", options: .regularExpression)
     }
+}
 
-    private func authToken() async throws -> String {
-        var request = try HTTPTransport.jsonRequest(
-            URL(string: "https://asr.api.yating.tw/v1/token")!,
-            headers: ["key": apiKey()],
-            body: ["pipeline": "asr-zh-tw-std"]
-        )
-        request.timeoutInterval = 10
-        let prepared = request
-        let data: Data
-        let response: HTTPURLResponse
-        do {
-            let http = http
-            (data, response) = try await withTimeout(.seconds(10)) { try await http.send(prepared) }
-        } catch is TimeoutError {
-            AppLog.shared.record(.stt, .requestFailed, detail: "timeout")
-            throw SttError(.timeout, "雅婷語音辨識逾時。")
-        } catch where isCancellation(error) {
-            throw SttError(.cancelled, "已取消辨識。")
-        } catch {
-            AppLog.shared.record(.stt, .requestFailed, detail: "network")
-            throw SttError(.network, "雅婷語音辨識失敗，請重試。")
+/// Matches Yating error wording about quota or an expired plan. The text is
+/// only inspected, never written to the App Log.
+func yatingBillingPattern(_ text: String) -> Bool {
+    text.range(of: "quota|balance|expire|insufficient|credit|payment", options: [.regularExpression, .caseInsensitive]) != nil
+}
+
+/// Classifies a non-201 `/v1/token` response. Shared by recognition and the
+/// settings-page health check.
+func yatingTokenFailure(statusCode: Int, body: Data) -> (detail: String, error: SttError) {
+    let text = String(decoding: body, as: UTF8.self)
+    let detail: String
+    if statusCode == 402 || yatingBillingPattern(text) {
+        detail = "billing"
+    } else {
+        detail = switch statusCode {
+        case 401, 403: "authentication"
+        case 429: "rateLimit"
+        case 500...: "server"
+        default: "invalidResponse"
         }
-        guard response.statusCode == 201 else {
-            let detail = switch response.statusCode {
-            case 401, 403: "authentication"
-            case 402: "billing"
-            case 429: "rateLimit"
-            case 500...: "server"
-            default: "invalidResponse"
-            }
-            AppLog.shared.record(.stt, .requestFailed, statusCode: response.statusCode, detail: detail)
-            throw SttError(.authentication, "雅婷 STT 驗證失敗。")
-        }
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              object["success"] as? Bool == true, let token = object["auth_token"] as? String else {
-            throw SttError(.invalidResponse, "雅婷 STT 驗證回應不正確。")
-        }
-        return token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? token
     }
+    let error = switch detail {
+    case "billing": SttError(.authentication, "雅婷額度不足或方案已到期，請到雅婷後台確認。")
+    case "authentication": SttError(.authentication, "雅婷 API Key 無效或已過期。")
+    case "rateLimit": SttError(.server, "雅婷請求太頻繁，請稍後再試。")
+    case "server": SttError(.server, "雅婷伺服器暫時故障，請稍後再試。")
+    default: SttError(.invalidResponse, "雅婷 STT 驗證回應不正確。")
+    }
+    return (detail, error)
+}
+
+/// `POST /v1/token` request for one ASR session. Free, so the health check sends it too.
+func yatingTokenRequest(apiKey: String) throws -> URLRequest {
+    var request = try HTTPTransport.jsonRequest(
+        URL(string: "https://asr.api.yating.tw/v1/token")!,
+        headers: ["key": apiKey],
+        body: ["pipeline": "asr-zh-tw-std"]
+    )
+    request.timeoutInterval = 10
+    return request
+}
+
+func yatingToken(apiKey: String, http: HTTPSending) async throws -> String {
+    let prepared = try yatingTokenRequest(apiKey: apiKey)
+    let watch = Stopwatch()
+    let data: Data
+    let response: HTTPURLResponse
+    do {
+        (data, response) = try await withTimeout(.seconds(10)) { try await http.send(prepared) }
+    } catch is TimeoutError {
+        AppLog.shared.record(.stt, .requestFailed, durationMs: watch.milliseconds, detail: "timeout")
+        throw SttError(.timeout, "雅婷語音辨識逾時。")
+    } catch where isCancellation(error) {
+        throw SttError(.cancelled, "已取消辨識。")
+    } catch {
+        AppLog.shared.record(.stt, .requestFailed, durationMs: watch.milliseconds, detail: "network")
+        throw SttError(.network, "無法連上雅婷，請檢查網路後重試。")
+    }
+    AppLog.shared.record(.stt, .requestCompleted, durationMs: watch.milliseconds, statusCode: response.statusCode, detail: "yatingToken")
+    guard response.statusCode == 201 else {
+        let failure = yatingTokenFailure(statusCode: response.statusCode, body: data)
+        AppLog.shared.record(.stt, .requestFailed, statusCode: response.statusCode, detail: failure.detail)
+        throw failure.error
+    }
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          object["success"] as? Bool == true, let token = object["auth_token"] as? String else {
+        AppLog.shared.record(.stt, .requestFailed, statusCode: response.statusCode, detail: "invalidResponse")
+        throw SttError(.invalidResponse, "雅婷 STT 驗證回應不正確。")
+    }
+    return token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? token
 }
 
 /// Yating TTS v2: 16 kHz LINEAR16 PCM wrapped in a WAV header.
@@ -161,7 +230,12 @@ public struct YatingSpeechSynthesizer: SpeechSynthesizer {
     public init(apiKey: @escaping @Sendable () -> String) { self.apiKey = apiKey }
 
     public func synthesize(_ text: String, language: SpeechLanguage) async -> Data? {
-        guard !text.isEmpty else { return nil }
+        await synthesizeReporting(text, language: language).audio
+    }
+
+    /// The audio, or the App Log code and HTTP status of the failure (also logged).
+    func synthesizeReporting(_ text: String, language: SpeechLanguage) async -> (audio: Data?, detail: String?, statusCode: Int?) {
+        guard !text.isEmpty else { return (nil, "invalidInput", nil) }
         let body: [String: Any] = [
             "input": ["text": text, "type": "text"],
             "voice": ["model": language == .taiwanese ? "tai_female_1" : "zh_en_female_1", "speed": 1.0, "pitch": 1.0, "energy": 1.0],
@@ -176,23 +250,30 @@ public struct YatingSpeechSynthesizer: SpeechSynthesizer {
             if response.statusCode == 200 || response.statusCode == 201,
                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let encoded = object["audioContent"] as? String, let pcm = Data(base64Encoded: encoded), !pcm.isEmpty {
-                return WavAudio.wav(pcm: pcm, sampleRate: 16_000)
+                return (WavAudio.wav(pcm: pcm, sampleRate: 16_000), nil, response.statusCode)
             }
-            let detail = switch response.statusCode {
-            case 401, 403: "authentication"
-            case 402: "billing"
-            case 429: "rateLimit"
-            case 500...: "server"
-            default: "invalidResponse"
+            let detail: String
+            if response.statusCode == 200 || response.statusCode == 201 {
+                detail = "emptyAudio"
+            } else if response.statusCode == 402 || yatingBillingPattern(String(decoding: data, as: UTF8.self)) {
+                detail = "billing"
+            } else {
+                detail = switch response.statusCode {
+                case 401, 403: "authentication"
+                case 429: "rateLimit"
+                case 500...: "server"
+                default: "invalidResponse"
+                }
             }
             AppLog.shared.record(.tts, .requestFailed, bytes: data.count, statusCode: response.statusCode, detail: detail)
-            return nil
+            return (nil, detail, response.statusCode)
         } catch is TimeoutError {
             AppLog.shared.record(.tts, .requestFailed, detail: "timeout")
-            return nil
+            return (nil, "timeout", nil)
         } catch {
-            if !isCancellation(error) { AppLog.shared.record(.tts, .requestFailed, detail: "network") }
-            return nil
+            if isCancellation(error) { return (nil, "cancelled", nil) }
+            AppLog.shared.record(.tts, .requestFailed, detail: "network")
+            return (nil, "network", nil)
         }
     }
 }

@@ -8,12 +8,14 @@ final class FakeRecorderPort: RecorderPort {
     var permission = true
     var stops = 0
     var db: (Int) -> Double = { _ in -60 }
+    /// What the "recording" contains.
+    var pcm = Data(count: 3200)
     private var samples = 0
     private var url: URL?
     func hasPermission() async -> Bool { permission }
     func start(_ url: URL) throws {
         self.url = url
-        try WavAudio(pcm: Data(count: 3200)).encode().write(to: url)
+        try WavAudio(pcm: pcm).encode().write(to: url)
     }
     func stop() -> URL? {
         stops += 1

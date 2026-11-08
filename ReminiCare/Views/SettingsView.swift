@@ -12,6 +12,9 @@ struct SettingsView: View {
     @State private var taiLoProvider = TaiLoModelSettings.defaultProvider
     @State private var saving = false
     @State private var validationError: String?
+    @State private var health: [ServiceKind: HealthResult] = [:]
+    @State private var checking: Set<ServiceKind> = []
+    private let history = HealthHistory()
 
     private var visibleKeys: [String] {
         var keys = [ConfigStore.llmKey(llm), ConfigStore.llmModelKey(llm), ConfigStore.imageKey(image)]
@@ -108,6 +111,28 @@ struct SettingsView: View {
                 if let validationError {
                     Section { Text(validationError).foregroundStyle(.red) }
                 }
+                Section {
+                    ForEach(ServiceKind.allCases, id: \.self) { kind in
+                        healthRow(kind)
+                    }
+                } header: {
+                    HStack {
+                        Text("服務狀態")
+                        Spacer()
+                        Button("全部檢查") { checkAll() }
+                            .font(.subheadline)
+                            .disabled(!checking.isEmpty)
+                    }
+                } footer: {
+                    Text("用上方目前填的值測試（不必先儲存）。只送最小的請求：不會產生圖片，語言模型約用十幾個字的額度。")
+                }
+                Section("診斷") {
+                    NavigationLink {
+                        RecordingTestView()
+                    } label: {
+                        Label("錄音測試", systemImage: "waveform.badge.mic")
+                    }
+                }
             }
             .navigationTitle("ReminiCare AI 設定")
             .navigationBarTitleDisplayMode(.inline)
@@ -146,13 +171,80 @@ struct SettingsView: View {
         taiLoProvider = TaiLoModelSettings.parseProvider(config.value(ConfigKey.taiLoProvider))
     }
 
-    private func save() {
+    /// The form as it stands, saved or not.
+    private var formValues: [String: String] {
         var updated = values
         updated[ConfigKey.llmProvider] = llm
         updated[ConfigKey.imageProvider] = image
         updated[ConfigKey.speechProvider] = speech
         updated[ConfigKey.taiwaneseFallback] = fallback.rawValue
         updated[ConfigKey.taiLoProvider] = taiLoProvider
+        return updated
+    }
+
+    private var checker: ServiceHealthChecker {
+        ServiceHealthChecker(config: ConfigStore(values: formValues.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }))
+    }
+
+    @ViewBuilder
+    private func healthRow(_ kind: ServiceKind) -> some View {
+        let provider = checker.providerName(kind)
+        let result = health[kind].flatMap { $0.provider == provider ? $0 : nil } ?? history.latest(kind, provider: provider)
+        HStack(alignment: .top, spacing: 12) {
+            Circle()
+                .fill(color(result?.status))
+                .frame(width: 12, height: 12)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(kind.label)：\(provider)").font(.subheadline)
+                if checking.contains(kind) {
+                    Text("檢查中…").font(.caption).foregroundStyle(.secondary)
+                } else if let result {
+                    let code = result.statusCode.map { "（HTTP \($0)）" } ?? ""
+                    Text("\(result.status.label)\(code)・\(result.checkedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(result.status.isUsable ? Color.secondary : Color.red)
+                    if !result.status.isUsable || result.status == .unverifiable {
+                        Text(result.status.advice).font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("尚未檢查").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if checking.contains(kind) {
+                ProgressView()
+            } else {
+                Button("測試") { check(kind) }.buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func color(_ status: HealthStatus?) -> Color {
+        switch status {
+        case nil: .gray
+        case .ok?: .green
+        case .unverifiable?, .slow?, .rateLimited?: .orange
+        default: .red
+        }
+    }
+
+    private func check(_ kind: ServiceKind) {
+        let checker = checker
+        checking.insert(kind)
+        Task {
+            let result = await checker.check(kind)
+            history.save(result)
+            health[kind] = result
+            checking.remove(kind)
+        }
+    }
+
+    private func checkAll() {
+        for kind in ServiceKind.allCases where !checking.contains(kind) { check(kind) }
+    }
+
+    private func save() {
+        let updated = formValues
         if let error = config.validate(updated) {
             validationError = error
             return

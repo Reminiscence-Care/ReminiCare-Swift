@@ -108,6 +108,10 @@ public struct RecordingResult: Sendable {
     public let file: URL?
     public let reason: RecordingStopReason
     public let duration: Duration
+    /// What the file contains; nil for cancelled recordings.
+    public var inspection: WavInspection?
+    /// Input in use when recording started; nil where unknown.
+    public var route: AudioRouteSnapshot?
 }
 
 @MainActor
@@ -122,6 +126,10 @@ public final class RecordingController {
     public var onState: ((RecordingState) -> Void)?
     public var onWarning: ((String) -> Void)?
     public var onCompleted: ((RecordingResult) -> Void)?
+    /// Each meter reading in dBFS while recording (for a level bar).
+    public var onLevel: ((Double) -> Void)?
+    /// Describes the input in use; logged once recording starts. Codes only.
+    public var describeInput: (() -> AudioRouteSnapshot?)?
 
     private var epoch = 0
     private var file: URL?
@@ -129,19 +137,22 @@ public final class RecordingController {
     private var sampler: Task<Void, Never>?
     private var stopping: Task<RecordingResult?, Never>?
     private var peakDb: Double?
+    private var route: AudioRouteSnapshot?
 
     public init(
         port: RecorderPort,
         createURL: @escaping () -> URL,
         activate: @escaping () throws -> Void,
         sampleInterval: Duration = .milliseconds(200),
-        manualStopTail: Duration = .milliseconds(800)
+        manualStopTail: Duration = .milliseconds(800),
+        describeInput: (() -> AudioRouteSnapshot?)? = nil
     ) {
         self.port = port
         self.createURL = createURL
         self.activate = activate
         self.sampleInterval = sampleInterval
         self.manualStopTail = manualStopTail
+        self.describeInput = describeInput
         port.onUnexpectedStop = { [weak self] in
             guard let self, self.state == .recording else { return }
             AppLog.shared.record(.recording, .warning, operationId: self.epoch, detail: "unexpectedStop")
@@ -180,12 +191,25 @@ public final class RecordingController {
             started = .now
             peakDb = nil
             setState(.recording)
+            logInput(epoch: current)
             sampler = Task { [weak self] in await self?.sample(epoch: current, silenceTimeout: silenceTimeout, maximum: maximumDuration) }
             return true
         } catch {
             if current == epoch { setState(.failed) }
             _ = port.stop()
             throw error
+        }
+    }
+
+    private func logInput(epoch current: Int) {
+        route = describeInput?()
+        guard let route else { return }
+        AppLog.shared.record(
+            .recording, .progress, operationId: current,
+            sampleRate: route.sampleRate, channels: route.inputChannels, detail: route.input.rawValue
+        )
+        if !route.inputAvailable {
+            AppLog.shared.record(.recording, .warning, operationId: current, detail: "inputUnavailable")
         }
     }
 
@@ -207,13 +231,14 @@ public final class RecordingController {
             guard let db = port.powerDb(), db.isFinite else {
                 failures += 1
                 if failures >= 3 {
-                    AppLog.shared.record(.recording, .warning, operationId: current, detail: "noSpeech")
+                    AppLog.shared.record(.recording, .warning, operationId: current, detail: "amplitudeUnavailable")
                     onWarning?("自動停頓偵測暫時無法使用，請說完後按「說完了」。")
                 }
                 continue
             }
             failures = 0
             peakDb = max(peakDb ?? db, db)
+            onLevel?(db)
             // Speech counts immediately; only quiet samples calibrate the noise floor.
             if !calibrated {
                 if db > -100 && db < -35 { noise.append(db) }
@@ -247,11 +272,30 @@ public final class RecordingController {
             var url = port.stop() ?? file
             file = nil
             if let path = url?.path, !FileManager.default.fileExists(atPath: path) { url = nil }
-            let result = RecordingResult(file: url, reason: reason, duration: duration)
-            AppLog.shared.record(
-                .recording, .recordingStopped, operationId: epoch,
-                durationMs: Int(duration.seconds * 1000), peakDb: peakDb.map { Int($0.rounded()) }, detail: reason.rawValue
-            )
+            var result = RecordingResult(file: url, reason: reason, duration: duration, route: route)
+            if reason == .cancelled {
+                AppLog.shared.record(
+                    .recording, .recordingStopped, operationId: epoch,
+                    durationMs: Int(duration.seconds * 1000), detail: reason.rawValue
+                )
+            } else {
+                // Measured from the file itself: catches silence the meter cannot
+                // (all-zero samples) and format problems the STT would reject.
+                let file = url
+                let inspection = await Task.detached { WavInspection.inspect(file: file) }.value
+                result.inspection = inspection
+                AppLog.shared.record(
+                    .recording, .recordingStopped, operationId: epoch,
+                    durationMs: Int(duration.seconds * 1000), bytes: inspection.exists ? inspection.fileBytes : nil,
+                    peakDb: (inspection.peakDb ?? peakDb).map { Int($0.rounded()) },
+                    avgDb: inspection.rmsDb.map { Int($0.rounded()) },
+                    loudPercent: inspection.loudPercent, zeroPercent: inspection.zeroPercent,
+                    sampleRate: inspection.sampleRate, channels: inspection.channels, detail: reason.rawValue
+                )
+                if inspection.verdict != .ok {
+                    AppLog.shared.record(.recording, .warning, operationId: epoch, detail: inspection.verdict.rawValue)
+                }
+            }
             setState(.completed)
             if reason == .cancelled {
                 if let url { try? FileManager.default.removeItem(at: url) }

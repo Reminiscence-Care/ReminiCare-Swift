@@ -12,11 +12,31 @@ public struct ReminiscenceAI: Sendable {
     public let client: LlmClient
     public init(client: LlmClient) { self.client = client }
 
+    /// One LLM call tagged with its purpose in the App Log, so a failure line
+    /// says which step failed (the client logs the HTTP status and error kind).
+    private func ask(
+        _ purpose: String, _ messages: [LlmMessage], temperature: Double = 0.6, maxTokens: Int, jsonObject: Bool = false
+    ) async throws -> String {
+        let watch = Stopwatch()
+        AppLog.shared.record(.ai, .started, detail: purpose)
+        do {
+            let reply = try await client.complete(messages, temperature: temperature, maxTokens: maxTokens, jsonObject: jsonObject)
+            AppLog.shared.record(.ai, .completed, durationMs: watch.milliseconds, detail: purpose)
+            return reply
+        } catch {
+            AppLog.shared.record(
+                .ai, isCancellation(error) ? .cancelled : .failed, durationMs: watch.milliseconds,
+                statusCode: (error as? AIServiceError)?.statusCode, detail: purpose
+            )
+            throw error
+        }
+    }
+
     /// Generates a main and follow-up question for each fixed catalog topic.
     public func questions(for topics: [ReminiscenceTopic]) async throws -> [ReminiscenceTopic] {
         let list = topics.map { ["topicId": $0.topicId, "title": $0.title] }
         let json = String(data: try JSONSerialization.data(withJSONObject: list), encoding: .utf8) ?? "[]"
-        let raw = try await client.complete([
+        let raw = try await ask("questions", [
             LlmMessage("system", "你是台灣長輩回憶聊天引導員，只輸出合法 JSON。"),
             LlmMessage("user", "為以下固定主題各產生一個親切主問題與延伸問題。不得改變 topicId 或主題。回傳 {\"topics\":[{\"topicId\":\"...\",\"question\":\"...\",\"followUpQuestion\":\"...\"}]}。主題：\(json)"),
         ], maxTokens: 1200, jsonObject: true)
@@ -56,7 +76,7 @@ public struct ReminiscenceAI: Sendable {
     /// Surname plus the speaker's own title. The surname must appear in the
     /// transcript; an unclear title falls back to 長輩.
     public func elderName(from transcript: String) async throws -> String {
-        let result = try await client.complete([
+        let result = try await ask("elderName", [
             LlmMessage("system",
                 "從自我介紹只擷取正在說話者的姓氏及本人明確指定的稱謂，不擷取名字或其他人的姓氏。"
                 + "只輸出 JSON，例如 {\"surname\":\"王\",\"title\":\"先生\"}；未知值使用 JSON null，不是字串。"
@@ -102,14 +122,14 @@ public struct ReminiscenceAI: Sendable {
     }
 
     public func extendedQuestion(previous: String, response: String) async throws -> String {
-        try await client.complete([
+        try await ask("followUp", [
             LlmMessage("system", "你是親切的台灣回憶治療引導員。根據回答提出一個具體、溫暖、25到45字的繁體中文延伸問題，只回傳問題。"),
             LlmMessage("user", "先前問題：\(previous)\n長輩回答：\(response)"),
         ], temperature: 0.75, maxTokens: 100)
     }
 
     public func sceneData(from transcript: String) async throws -> SceneData {
-        let raw = try await client.complete([
+        let raw = try await ask("sceneData", [
             LlmMessage("system", "把回憶整理成 JSON，只能包含 scene、era、location、keywords；keywords 是繁體中文陣列。"),
             LlmMessage("user", transcript),
         ], temperature: 0.1, maxTokens: 1024, jsonObject: true)

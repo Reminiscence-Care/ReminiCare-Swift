@@ -77,7 +77,23 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 ### App Log `Support/AppLog.swift`
 
-全 App 共用、記憶體內、有界的執行紀錄，從每個畫面右上角「Log」（`.logToolbar()`）以 fullScreenCover 開啟，不會中斷進行中的對話。只記固定的 `LogArea`／`LogEvent` 與數字欄位（狀態碼、時長、大小、音量峰值），不記 Key、Token、prompt 或回應原文；STT 辨識文字只走專用的 transcription 事件。新增 Log 時沿用這些列舉，不要記任意字串。
+全 App 共用、記憶體內、有界的執行紀錄，從每個畫面右上角「Log」（`.logToolbar()`）以 fullScreenCover 開啟，不會中斷進行中的對話。只記固定的 `LogArea`／`LogEvent` 與數字欄位（狀態碼、時長、大小、音量、取樣率），不記 Key、Token、prompt 或回應原文；STT 辨識文字只走專用的 transcription 事件。`detail` 必須是 `AppLog.detailLabels` 裡的代碼（其他一律變成 `unexpected`），新增代碼要同時加中文標籤。
+
+客戶回報「錄音後辨識是空字串」這類問題時的判讀（錄音那行由 `RecordingController.stop` 讀檔案本身算出，`Audio/AudioDiagnostics.swift`）：
+
+| Log | 意思 |
+|---|---|
+| `[RECORDING] 進度・輸入裝置：…` | 這次用的麥克風（內建／藍牙／有線／USB），附硬體取樣率 |
+| `[RECORDING] 錄音停止` 的 `最大音量`、`平均`、`有聲`、`全零`、`取樣率`、`聲道`、`大小` | 錄到的檔案實際內容 |
+| `[RECORDING] 警告・整段錄音全是 0` | 麥克風沒有任何訊號：權限、被其他 App 佔用、或接了沒有麥克風的藍牙裝置 |
+| `[RECORDING] 警告・整段錄音幾乎無聲`／`錄音音量很小` | 有訊號但太小 |
+| `[RECORDING] 警告・錄音格式不是 16 kHz…`／`錄音檔不完整` | 編碼或錄音器結束的問題，STT 會拒收 |
+| `[STT] 收到回應・雅婷 STT 取得連線 Token` 的 `HTTP=` | 201 正常；額度／Key／限流各有獨立代碼 |
+| `[STT] 收到回應・雅婷 STT 辨識完成  進度=N/N` | N 是雅婷辨識出的句數；0 句且錄音正常＝雅婷端沒聽出內容 |
+| `[STT] 警告・辨識完成但沒有任何文字` | 對照上面錄音那行判斷是錄音還是辨識的問題 |
+| `[AI] 失敗・LLM：…` | 哪個步驟的 LLM 失敗；前一行 `[LLM]` 有 HTTP 狀態與錯誤種類 |
+
+設定頁另有「服務狀態」（`Config/ServiceHealth.swift`，用表單目前的值、最便宜的請求檢查 Key 無效／額度／限流／連不上；Cloudflare 用 415 探測 token、不產生圖片）與「錄音測試」（`Audio/RecordingTest.swift`，與對話同一套錄音器，可播放、送 STT、複製診斷、分享音檔）。
 
 ## 外部服務注意事項
 
