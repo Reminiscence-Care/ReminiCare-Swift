@@ -140,16 +140,22 @@ public struct ReminiscenceAI: Sendable {
     /// words, broken phrases) using the question as context. Never throws:
     /// any failure, timeout or implausible rewrite means "keep the original".
     public func correctTranscript(
-        question: String, transcript: String, timeout: Duration = correctionTimeout
+        question: String, transcript: String, topic: String = "", timeout: Duration = correctionTimeout
     ) async -> CorrectionOutcome {
+        let topicLine = topic.isEmpty ? "" : "聊天主題：\(topic)\n"
         let messages = [
             LlmMessage("system",
-                "你是語音辨識校對員。逐字稿是台灣長輩用國語或台語口語回答問題，經語音辨識後可能有同音字、近音字或斷句錯誤，"
-                + "例如問題問「有沒有織過布」，辨識成「我沒有字過，不」，應改成「我沒有織過布」。"
-                + "請依照問題的脈絡，只修正明顯的辨識錯字與斷句。"
-                + "不得新增或刪除內容，不得改寫、潤飾或摘要，不得回答問題，保留口語用詞與語氣；不確定時保留原文。"
-                + "只輸出 JSON：{\"text\":\"校正後的逐字稿\"}。"),
-            LlmMessage("user", "問題：\(question)\n逐字稿：\(transcript)"),
+                "你是語音辨識校對員。逐字稿是台灣長輩用國語或台語口語回答問題，經語音辨識後常有同音字、近音字或斷句錯誤。"
+                + "台灣口音常把 zh/ch/sh 念成 z/c/s、n 念成 l、ing 念成 in、eng 念成 en，所以「織」可能被辨識成「字」「吃」「知」，"
+                + "「布」被切成獨立的「不」並多出逗號。"
+                + "校正步驟：一、找出在主題與問題脈絡下說不通的字詞；二、只換成讀音相同或非常相近（拼音相同或只差聲調、口音）的字詞，"
+                + "優先選主題與問題裡出現過的詞；三、讀音不相近的不要換，看不出原意就保留原文。"
+                + "範例（主題：織布）：「我沒有吃過，不」→「我沒有織過布」；「我沒有字過，不」→「我沒有織過布」；"
+                + "「我們都是去，不」若說的是織布，→「我們都是去織布」。"
+                + "不得新增或刪除內容，不得改寫、潤飾、摘要或回答問題，保留口語用詞與語氣。"
+                + "只輸出 JSON：{\"changes\":[{\"from\":\"原文片段\",\"to\":\"改成\",\"pinyin\":\"原文拼音 → 改後拼音\"}],\"text\":\"校正後的完整逐字稿\"}；"
+                + "沒有要改就輸出 {\"changes\":[],\"text\":\"原文\"}。"),
+            LlmMessage("user", "\(topicLine)問題：\(question)\n逐字稿：\(transcript)"),
         ]
         let raw: String?
         do {
@@ -184,6 +190,14 @@ public struct ReminiscenceAI: Sendable {
         guard abs(core(text) - before) <= max(4, before * 3 / 10) else { return nil }
         let source = original + question
         for run in asciiRuns(text) where !source.contains(run) { return nil }
+        // Each listed change must replace something actually said with a
+        // similar-length phrase; anything else is a rewrite, not a fix.
+        let compactOriginal = original.filter { $0.isLetter || $0.isNumber }
+        for change in data["changes"] as? [[String: Any]] ?? [] {
+            let from = (change["from"] as? String ?? "").filter { $0.isLetter || $0.isNumber }
+            let to = (change["to"] as? String ?? "").filter { $0.isLetter || $0.isNumber }
+            guard !from.isEmpty, compactOriginal.contains(from), abs(from.count - to.count) <= 1 else { return nil }
+        }
         return text
     }
 
@@ -203,10 +217,19 @@ public struct ReminiscenceAI: Sendable {
         return runs
     }
 
-    public func sceneData(from transcript: String) async throws -> SceneData {
+    /// Turns the spoken answers into one coherent scene for the image prompt.
+    /// `context` holds the topic and each question with its answer, so
+    /// fragments and leftover recognition errors are read in context.
+    public func sceneData(from transcript: String, context: String = "") async throws -> SceneData {
         let raw = try await ask("sceneData", [
-            LlmMessage("system", "把回憶整理成 JSON，只能包含 scene、era、location、keywords；keywords 是繁體中文陣列。"),
-            LlmMessage("user", transcript),
+            LlmMessage("system",
+                "你協助把台灣長輩口述的回憶變成一張照片的畫面描述。回答是語音辨識的口語逐字稿，可能有贅字、斷句不完整或殘留的同音錯字，"
+                + "請依主題與問題理解原意後再整理，不要照字面翻譯不通順的片段，也不要加入長輩沒提到的人物或事件。"
+                + "長輩說「沒有」做過的事，不要畫成他在做；改畫他提到的相關經驗，或在旁觀看的情境。"
+                + "只輸出 JSON，只能包含 scene、era、location、keywords："
+                + "scene 是一段通順、具體的英文畫面描述（人物、動作、地點、物品），era 例如 \"1970s\"，location 例如 \"rural Tainan, Taiwan\"，未知填 null；"
+                + "keywords 是 3 到 6 個繁體中文關鍵詞陣列。"),
+            LlmMessage("user", context.isEmpty ? transcript : "\(context)\n\n整理以上回答。"),
         ], temperature: 0.1, maxTokens: 1024, jsonObject: true)
         let data = try ProviderResponseParser.decodeJSONObject(raw, requiredKey: "scene")
         func nonEmpty(_ value: Any?) -> String? {

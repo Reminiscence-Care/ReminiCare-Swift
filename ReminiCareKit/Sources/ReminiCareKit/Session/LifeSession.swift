@@ -110,6 +110,16 @@ public final class LifeSession {
     }
     public var currentImageURL: URL? { memories.imageURL(currentImagePath) }
 
+    /// Topic plus each question and answer, so the scene step reads the
+    /// spoken answers in context instead of as one run-on transcript.
+    var memoryContext: String {
+        let answers = turns.filter { $0.kind == .memory }
+        guard !answers.isEmpty else { return "" }
+        var lines = selectedTopic.map { ["主題：\($0.title)"] } ?? []
+        for turn in answers { lines += ["問：\(turn.question)", "答：\(turn.text)"] }
+        return lines.joined(separator: "\n")
+    }
+
     private func isCurrent(_ value: Int) -> Bool { !closed && value == session }
 
     // MARK: Topics
@@ -450,7 +460,7 @@ public final class LifeSession {
             ? "哪裡不太像呢？請告訴我想修改照片的地方。（先前分享的回憶：\(memoryTranscript)）"
             : currentQuestion
         let operation = session
-        switch await ai.correctTranscript(question: context, transcript: text) {
+        switch await ai.correctTranscript(question: context, transcript: text, topic: selectedTopic?.title ?? "") {
         case .corrected(let fixed):
             AppLog.shared.record(.ai, .progress, operationId: operation, detail: "transcriptCorrected")
             AppLog.shared.recordTranscription(fixed, operationId: operation, corrected: true)
@@ -616,7 +626,7 @@ public final class LifeSession {
         var era = "1960s-1980s"
         var location = "Taiwan"
         do {
-            let data = try await ai.sceneData(from: text)
+            let data = try await ai.sceneData(from: text, context: memoryContext)
             guard isCurrent(current) else { return }
             keywords = data.keywords
             if !data.scene.isEmpty { scene = data.scene }

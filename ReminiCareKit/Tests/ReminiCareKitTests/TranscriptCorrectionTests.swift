@@ -28,6 +28,17 @@ private struct SlowLlm: LlmClient {
         #expect(ReminiscenceAI.validateCorrection(#"{"text":"我1960年沒有織過布"}"#, original: original, question: question) == nil)
     }
 
+    @Test func checksEachListedChange() {
+        let good = #"{"changes":[{"from":"吃過，不","to":"織過布","pinyin":"chī guò bù → zhī guò bù"}],"text":"我沒有織過布"}"#
+        #expect(ReminiscenceAI.validateCorrection(good, original: "我沒有吃過，不", question: question) == fixed)
+        let invented = #"{"changes":[{"from":"喝過","to":"織過","pinyin":""}],"text":"我沒有織過布"}"#
+        #expect(ReminiscenceAI.validateCorrection(invented, original: "我沒有吃過，不", question: question) == nil)
+        let rewritten = #"{"changes":[{"from":"不","to":"織布的經驗","pinyin":""}],"text":"我沒有吃過織布的經驗"}"#
+        #expect(ReminiscenceAI.validateCorrection(rewritten, original: "我沒有吃過，不", question: question) == nil)
+        let none = #"{"changes":[],"text":"我沒有織過布"}"#
+        #expect(ReminiscenceAI.validateCorrection(none, original: fixed, question: question) == fixed)
+    }
+
     @Test func keepsNumbersThatWereSaid() {
         let original = "我1960年在台南織布"
         #expect(ReminiscenceAI.validateCorrection(#"{"text":"我1960年在台南織布"}"#, original: original, question: question) == original)
@@ -52,6 +63,7 @@ private struct SlowLlm: LlmClient {
         let voice: FakeVoice
         let image: FakeImage
         let correctionRequests: LockedValue<[String]>
+        let sceneRequests: LockedValue<[String]>
     }
 
     func make(
@@ -67,6 +79,7 @@ private struct SlowLlm: LlmClient {
         let voice = FakeVoice(directory: root)
         let image = FakeImage(store: LocalImageStore(root: root))
         let requests = LockedValue<[String]>([])
+        let scenes = LockedValue<[String]>([])
         let llm = FakeLlm { messages in
             let system = messages.first?.content ?? ""
             let user = messages.last?.content ?? ""
@@ -76,14 +89,17 @@ private struct SlowLlm: LlmClient {
             }
             if system.contains("姓氏") { return #"{"surname":"王","title":"先生"}"# }
             if user.contains("topicId") { throw AIServiceError(.network, "offline") }
-            if system.contains("scene") { return #"{"scene":"weaving","era":"1970s","location":"Tainan","keywords":["織布"]}"# }
+            if system.contains("scene") {
+                scenes.withValue { $0.append(user) }
+                return #"{"scene":"weaving","era":"1970s","location":"Tainan","keywords":["織布"]}"#
+            }
             return "還記得是誰教您的嗎？"
         }
         let session = LifeSession(
             config: config, ai: ReminiscenceAI(client: llm), image: image,
             recognizer: FakeRecognizer(transcripts), memories: MemoryRepository(root: root), voice: { voice }
         )
-        return Harness(session: session, voice: voice, image: image, correctionRequests: requests)
+        return Harness(session: session, voice: voice, image: image, correctionRequests: requests, sceneRequests: scenes)
     }
 
     func waitUntil(_ condition: () -> Bool) async throws {
@@ -120,6 +136,11 @@ private struct SlowLlm: LlmClient {
         let request = try #require(h.correctionRequests.current.first)
         #expect(request.contains(h.session.turns[0].question))
         #expect(request.contains(misheard))
+        #expect(request.contains("聊天主題：\(h.session.topics[0].title)"))
+        let scene = try #require(h.sceneRequests.current.first)
+        #expect(scene.contains("主題：\(h.session.topics[0].title)"))
+        #expect(scene.contains("問：\(h.session.turns[0].question)"))
+        #expect(scene.contains("答：\(fixed)"))
     }
 
     @Test func failedCorrectionContinuesWithTheOriginal() async throws {
