@@ -33,6 +33,7 @@ struct SettingsView: View {
         if llm == "custom" { keys.append("CUSTOM_LLM_BASE_URL") }
         if image == "custom" { keys += ["CUSTOM_IMAGE_BASE_URL", "CUSTOM_IMAGE_MODEL"] }
         if image == "cloudflare" { keys.append("CLOUDFLARE_IMAGE_WORKER_URL") }
+        keys.append(ConfigKey.errorReportURL)
         return keys
     }
 

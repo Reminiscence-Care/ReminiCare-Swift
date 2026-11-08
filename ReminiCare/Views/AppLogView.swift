@@ -5,6 +5,7 @@ struct AppLogView: View {
     @ObservedObject private var log = AppLog.shared
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+    @State private var reporting = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
@@ -41,7 +42,13 @@ struct AppLogView: View {
             ToolbarItem(placement: .topBarLeading) {
                 Button { dismiss() } label: { Image(systemName: "chevron.backward") }.accessibilityLabel("返回")
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("回報問題", systemImage: "exclamationmark.bubble") { reporting = true }
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 18))
+            }
         }
+        .sheet(isPresented: $reporting) { ErrorReportView() }
         .alert("已複製紀錄", isPresented: $copied) { Button("好", role: .cancel) {} }
     }
 }

@@ -29,6 +29,8 @@ public enum ConfigKey {
     public static let maxRecord = "VOICE_MAX_RECORD_LIMIT"
     public static let transcriptCorrection = "STT_LLM_CORRECTION"
     public static let transcriptConfirmation = "STT_CONFIRM_TRANSCRIPT"
+    public static let errorReportURL = "ERROR_REPORT_URL"
+    public static let defaultErrorReportURL = "https://reminicare-report-api.hding49.workers.dev"
     public static let defaultNckuSttURL = "http://140.116.245.149:5002/proxy"
     public static let defaultNckuTtsHost = "140.116.245.146"
 }
@@ -73,6 +75,7 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField(ConfigKey.maxRecord, "最長錄音秒數", hint: "180", secure: false, default: "180"),
         ConfigField(ConfigKey.transcriptCorrection, "用 AI 校正辨識錯字", hint: "true", secure: false, default: "true"),
         ConfigField(ConfigKey.transcriptConfirmation, "生圖前確認辨識文字", hint: "false", secure: false, default: "false"),
+        ConfigField(ConfigKey.errorReportURL, "錯誤回報網址", hint: "https://reminicare-report-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultErrorReportURL),
     ]
 
     private let defaults: UserDefaults

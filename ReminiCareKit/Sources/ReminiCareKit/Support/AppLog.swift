@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 public enum LogArea: String, Sendable, CaseIterable {
-    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache
+    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache, report
 }
 
 public enum LogEvent: String, Sendable {
@@ -211,6 +211,14 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "transcriptConfirmed": "已確認辨識文字",
         "transcriptEdited": "已手動修改辨識文字",
         "transcriptRerecord": "辨識文字不對，重新錄音",
+        // 錯誤回報
+        "errorReport": "送出錯誤回報",
+        "report_notConfigured": "錯誤回報：尚未設定回報網址",
+        "report_rateLimited": "錯誤回報：短時間內太多次，已保存待重送",
+        "report_tooLarge": "錯誤回報：內容太大",
+        "report_rejected": "錯誤回報：格式不被接受",
+        "report_server": "錯誤回報：服務暫時無法使用，已保存待重送",
+        "report_network": "錯誤回報：連不上網路，已保存待重送",
         // 服務狀態檢查
         "healthCheck": "服務狀態檢查",
         "healthOk": "服務檢查：可用",
