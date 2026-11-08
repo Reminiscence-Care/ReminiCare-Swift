@@ -7,6 +7,8 @@ public struct ErrorReport: Codable, Sendable, Equatable, Identifiable {
     public var createdAt: String
     public var appVersion: String
     public var appBuild: String
+    /// Git commit the app was built from; nil when the build did not stamp one.
+    public var appCommit: String?
     public var deviceModel: String
     public var osVersion: String
     public var description: String
@@ -20,14 +22,25 @@ public struct ErrorReport: Codable, Sendable, Equatable, Identifiable {
 public struct ReportEnvironment: Sendable {
     public var appVersion: String
     public var appBuild: String
+    public var appCommit: String?
     public var deviceModel: String
     public var osVersion: String
 
-    public init(appVersion: String, appBuild: String, deviceModel: String, osVersion: String) {
+    public init(appVersion: String, appBuild: String, appCommit: String? = nil, deviceModel: String, osVersion: String) {
         self.appVersion = appVersion
         self.appBuild = appBuild
+        self.appCommit = Self.commit(appCommit)
         self.deviceModel = deviceModel
         self.osVersion = osVersion
+    }
+
+    /// A short commit like `4fb9d35` or `4fb9d35-dirty`; anything else
+    /// (unset, an unexpanded `$(REMINICARE_COMMIT)`) means unknown.
+    static func commit(_ raw: String?) -> String? {
+        guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              value.range(of: #"^[0-9a-f]{7,40}(-dirty)?$"#, options: .regularExpression) != nil
+        else { return nil }
+        return value
     }
 
     public static var current: ReportEnvironment {
@@ -40,6 +53,7 @@ public struct ReportEnvironment: Sendable {
         return ReportEnvironment(
             appVersion: info["CFBundleShortVersionString"] as? String ?? "?",
             appBuild: info["CFBundleVersion"] as? String ?? "?",
+            appCommit: info["ReminiCareCommit"] as? String,
             deviceModel: machine.isEmpty ? "?" : machine,
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString
         )
@@ -66,6 +80,7 @@ public enum ErrorReportBuilder {
             createdAt: formatter.string(from: now),
             appVersion: environment.appVersion,
             appBuild: environment.appBuild,
+            appCommit: environment.appCommit,
             deviceModel: environment.deviceModel,
             osVersion: environment.osVersion,
             description: String(description.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxDescription)),

@@ -25,6 +25,8 @@ export interface Report {
   createdAt: string;
   appVersion: string;
   appBuild: string;
+  /** Git commit the app was built from; missing from builds that do not stamp it. */
+  appCommit?: string;
   deviceModel: string;
   osVersion: string;
   description: string;
@@ -53,6 +55,9 @@ export function parseReport(raw: unknown): Report | Failure {
   if (typeof r.reportId !== "string" || !/^[0-9A-Fa-f-]{36}$/.test(r.reportId)) return invalid;
   for (const key of ["createdAt", "appVersion", "appBuild", "deviceModel", "osVersion"]) {
     if (!shortText(r[key], 100)) return invalid;
+  }
+  if (r.appCommit !== undefined && (typeof r.appCommit !== "string" || !/^[0-9a-f]{7,40}(-dirty)?$/.test(r.appCommit))) {
+    return invalid;
   }
   if (typeof r.description !== "string" || typeof r.log !== "string") return invalid;
   if (r.description.length > MAX_DESCRIPTION || r.log.length > MAX_LOG) return { status: 413, error: "tooLarge" };
@@ -87,6 +92,7 @@ export function issueBody(report: Report, logChunks: number): string {
     ["回報編號", report.reportId],
     ["時間", report.createdAt],
     ["App", `${report.appVersion} (${report.appBuild})`],
+    ["Commit", report.appCommit ?? "（未標記）"],
     ["裝置", `${report.deviceModel} · ${report.osVersion}`],
     ["附語音辨識文字", report.includesTranscripts ? "是" : "否"],
     ["執行紀錄", logChunks === 0 ? "無" : `見下方 ${logChunks} 則留言`],

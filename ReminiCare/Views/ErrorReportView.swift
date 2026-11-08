@@ -53,7 +53,7 @@ struct ErrorReportView: View {
                         .font(.system(size: 16)).foregroundStyle(.secondary)
                 }
                 Section {
-                    LabeledContent("App 版本", value: "\(preview.appVersion)（\(preview.appBuild)）")
+                    LabeledContent("App 版本", value: "\(preview.appVersion)（\(preview.appBuild)）" + (preview.appCommit.map { "・\($0)" } ?? ""))
                     LabeledContent("裝置", value: preview.deviceModel)
                     LabeledContent("執行紀錄", value: "\(entries.count) 筆")
                     LabeledContent("設定摘要", value: "服務與模型名稱；Key 只標示是否已設定")

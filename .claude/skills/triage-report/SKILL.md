@@ -19,7 +19,9 @@ App 內「Log → 回報問題」送出的回報，會變成私人 repo 的一�
    ```sh
    gh issue view <編號> --repo <REPORT_REPO> --comments
    ```
-2. 從表格取得 App 版本、裝置、設定摘要（Key 只會顯示「已設定／未設定」）。版本和目前分支不同時，先 `git log --oneline v<版本>..HEAD` 看之後改過什麼。
+2. 從表格取得 App 版本、Commit、裝置、設定摘要（Key 只會顯示「已設定／未設定」）。
+   - 有 Commit 時，以它為準對照程式碼：`git show --stat <commit>`、`git log --oneline <commit>..HEAD` 看之後改過什麼。結尾是 `-dirty` 代表建置時有未提交的修改，程式可能和該 commit 不完全一樣。
+   - 沒有 Commit（舊版或本機 Xcode 建置）時，xtool 裝的版本號一律是 2.0.0 (1)，不可靠；只有 `v*` tag 打包的 IPA 版本號才準，可用 `git log --oneline v<版本>..HEAD`。
 3. 依 `CLAUDE.md` 的「App Log」判讀表讀執行紀錄，找出第一個 `失敗`、`警告`、HTTP ≥ 400，以及前後的錄音、STT、LLM、生圖那幾行。
 4. 對照程式碼定位原因（`detail` 代碼可在 `AppLog.detailLabels` 反查）。
 5. 回報給使用者，分成：

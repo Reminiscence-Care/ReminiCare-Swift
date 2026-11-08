@@ -33,6 +33,14 @@ describe("parseReport", () => {
     expect(parseReport(report)).toEqual(report);
   });
 
+  it("accepts an optional build commit", () => {
+    expect(parseReport({ ...report, appCommit: "9f76801" })).toEqual({ ...report, appCommit: "9f76801" });
+    expect(parseReport({ ...report, appCommit: "9f76801-dirty" })).not.toHaveProperty("error");
+    expect(parseReport({ ...report, appCommit: "<b>x</b>" })).toEqual({ status: 400, error: "invalid" });
+    expect(issueBody({ ...report, appCommit: "9f76801" }, 0)).toContain("| Commit | 9f76801 |");
+    expect(issueBody(report, 0)).toContain("| Commit | （未標記） |");
+  });
+
   it("rejects bad ids, types and oversized fields", () => {
     expect(parseReport({ ...report, reportId: "x" })).toEqual({ status: 400, error: "invalid" });
     expect(parseReport({ ...report, includesTranscripts: "yes" })).toEqual({ status: 400, error: "invalid" });

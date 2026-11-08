@@ -50,6 +50,25 @@ private func sampleEntries() -> [AppLogEntry] {
         #expect(report.deviceModel == "iPad13,4")
     }
 
+    @Test func carriesTheBuildCommit() throws {
+        #expect(ReportEnvironment.commit("4fb9d35") == "4fb9d35")
+        #expect(ReportEnvironment.commit(" 4fb9d35-dirty\n") == "4fb9d35-dirty")
+        #expect(ReportEnvironment.commit("$(REMINICARE_COMMIT)") == nil)
+        #expect(ReportEnvironment.commit("") == nil)
+        #expect(ReportEnvironment.commit(nil) == nil)
+
+        let stamped = ReportEnvironment(appVersion: "2.0.0", appBuild: "1", appCommit: "9f76801", deviceModel: "iPad", osVersion: "26")
+        let report = ErrorReportBuilder.make(
+            description: "", includeTranscripts: true, entries: [], config: try configWithSecrets(), environment: stamped
+        )
+        #expect(report.appCommit == "9f76801")
+        let unstamped = ErrorReportBuilder.make(
+            description: "", includeTranscripts: true, entries: [], config: try configWithSecrets(), environment: environment
+        )
+        let json = String(decoding: try JSONEncoder().encode(unstamped), as: UTF8.self)
+        #expect(!json.contains("appCommit"))
+    }
+
     @Test func transcriptsCanBeLeftOut() throws {
         let config = try configWithSecrets()
         let with = ErrorReportBuilder.make(
