@@ -43,8 +43,17 @@ struct RootView: View {
     }
 }
 
+// Written out instead of `@Entry`: that macro ships only with Xcode, and the
+// app is also built with xtool on Linux.
+private struct ShowLogKey: EnvironmentKey {
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
+}
+
 extension EnvironmentValues {
-    @Entry var showLog: () -> Void = {}
+    var showLog: @MainActor @Sendable () -> Void {
+        get { self[ShowLogKey.self] }
+        set { self[ShowLogKey.self] = newValue }
+    }
 }
 
 /// Adds the App Log entry to a screen's toolbar.

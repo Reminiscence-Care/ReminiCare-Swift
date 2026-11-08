@@ -8,11 +8,13 @@ struct HomeView: View {
     @State private var showSettings = false
     @State private var missingMessage: String?
 
+    private static let homeImage = BundledImage.home.flatMap { UIImage(contentsOfFile: $0.path) } ?? UIImage()
+
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
                 Spacer(minLength: 16)
-                Image("HomeImage")
+                Image(uiImage: Self.homeImage)
                     .resizable()
                     .scaledToFit()
                     .frame(maxWidth: 560, maxHeight: min(max(geometry.size.height * 0.62, 120), 360))
