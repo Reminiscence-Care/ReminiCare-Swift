@@ -4,6 +4,8 @@ import Observation
 public enum LifeStage: String, Sendable {
     case topicLoading, topicSelection, introduction, question, imageGenerating
     case evaluation, revisionRecording, revisionGenerating, summary
+    /// Recognized (and possibly AI-corrected) text waiting for a person to confirm.
+    case transcriptConfirmation
 }
 
 public enum IntroductionState: Sendable { case ready, recording, processing, confirmed }
@@ -38,6 +40,14 @@ public final class LifeSession {
     public private(set) var isSaving = false
     public private(set) var isSaved = false
     public private(set) var turns: [ConversationTurn] = []
+    /// AI correction of the recognized text is running.
+    public private(set) var isCorrecting = false
+    /// Text shown on the confirmation screen (after AI correction).
+    public private(set) var heardTranscript = ""
+    /// Speech-recognition output behind `heardTranscript`.
+    public private(set) var rawTranscript = ""
+    /// The text being confirmed is a photo-revision request, not a memory.
+    public private(set) var confirmingRevision = false
 
     @ObservationIgnored private let config: ConfigStore
     @ObservationIgnored private let ai: ReminiscenceAI
@@ -99,6 +109,16 @@ public final class LifeSession {
         turns.filter { $0.kind == .memory }.map(\.text).joined(separator: "，")
     }
     public var currentImageURL: URL? { memories.imageURL(currentImagePath) }
+
+    /// Topic plus each question and answer, so the scene step reads the
+    /// spoken answers in context instead of as one run-on transcript.
+    var memoryContext: String {
+        let answers = turns.filter { $0.kind == .memory }
+        guard !answers.isEmpty else { return "" }
+        var lines = selectedTopic.map { ["主題：\($0.title)"] } ?? []
+        for turn in answers { lines += ["問：\(turn.question)", "答：\(turn.text)"] }
+        return lines.joined(separator: "\n")
+    }
 
     private func isCurrent(_ value: Int) -> Bool { !closed && value == session }
 
@@ -250,6 +270,8 @@ public final class LifeSession {
         transcription?.cancel()
         busy = true
         isTranscribing = false
+        isCorrecting = false
+        clearConfirmation()
         await stopAllAudio()
         clearPendingAudio()
         guard isCurrent(current) else { return }
@@ -307,6 +329,8 @@ public final class LifeSession {
         transcription?.cancel()
         busy = false
         isTranscribing = false
+        isCorrecting = false
+        clearConfirmation()
         await stopAllAudio()
         await voice?.close()
         clearPendingAudio()
@@ -400,23 +424,121 @@ public final class LifeSession {
             }
             lastText = text
             if stage == .introduction {
+                // 稱呼不自動改字：姓氏由 elderName 擷取，同音由人確認。
                 await confirmName(from: text, session: current)
                 return
             }
-            lastWasRevision = stage == .revisionRecording
-            turns.append(ConversationTurn(question: currentQuestion, text: text, kind: lastWasRevision ? .correction : .memory, imagePath: currentImagePath))
-            transcript = memoryTranscript
+            let revision = stage == .revisionRecording
             isTranscribing = false
-            if lastWasRevision {
-                await reviseImage(session: current, instruction: text)
-            } else {
-                await createMemoryImage(session: current, text: memoryTranscript)
+            var heard = text
+            if config.transcriptCorrectionEnabled {
+                heard = await correctedTranscript(text, revision: revision)
+                guard isCurrent(current) else { return }
             }
+            if config.transcriptConfirmationEnabled {
+                rawTranscript = text
+                heardTranscript = heard
+                confirmingRevision = revision
+                stage = .transcriptConfirmation
+                return
+            }
+            await proceed(with: heard, raw: text, revision: revision, session: current)
         } catch {
             guard isCurrent(current) else { return }
             errorMessage = (error as? SttError)?.message ?? "語音辨識失敗，請重試或重新錄音。"
             if stage == .introduction { introductionState = .ready }
         }
+    }
+
+    /// AI-corrected text, or the original whenever correction fails, times out
+    /// or rewrites too much. Never shows an error: correction is best effort.
+    private func correctedTranscript(_ text: String, revision: Bool) async -> String {
+        isCorrecting = true
+        changed()
+        defer { isCorrecting = false }
+        let context = revision
+            ? "哪裡不太像呢？請告訴我想修改照片的地方。（先前分享的回憶：\(memoryTranscript)）"
+            : currentQuestion
+        let operation = session
+        switch await ai.correctTranscript(question: context, transcript: text, topic: selectedTopic?.title ?? "") {
+        case .corrected(let fixed):
+            AppLog.shared.record(.ai, .progress, operationId: operation, detail: "transcriptCorrected")
+            AppLog.shared.recordTranscription(fixed, operationId: operation, corrected: true)
+            return fixed
+        case .unchanged:
+            AppLog.shared.record(.ai, .progress, operationId: operation, detail: "transcriptUnchanged")
+        case .rejected:
+            AppLog.shared.record(.ai, .warning, operationId: operation, detail: "correctionRejected")
+        case .timedOut:
+            AppLog.shared.record(.ai, .warning, operationId: operation, detail: "correctionTimeout")
+        case .failed:
+            AppLog.shared.record(.ai, .warning, operationId: operation, detail: "correctionFailed")
+        }
+        return text
+    }
+
+    /// Stores the turn and makes (or revises) the photo.
+    private func proceed(with text: String, raw: String, revision: Bool, session current: Int) async {
+        lastText = text
+        lastWasRevision = revision
+        turns.append(ConversationTurn(
+            question: currentQuestion, text: text, kind: revision ? .correction : .memory,
+            imagePath: currentImagePath, rawText: raw == text ? nil : raw
+        ))
+        transcript = memoryTranscript
+        if revision {
+            await reviseImage(session: current, instruction: text)
+        } else {
+            await createMemoryImage(session: current, text: memoryTranscript)
+        }
+    }
+
+    // MARK: Transcript confirmation
+
+    /// The shown text is right: continue with it.
+    public func confirmTranscript() async {
+        await continueConfirmed(heardTranscript, detail: "transcriptConfirmed")
+    }
+
+    /// Continue with text corrected by hand. Empty text is ignored.
+    public func submitEditedTranscript(_ text: String) async {
+        let edited = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !edited.isEmpty else { return }
+        await continueConfirmed(edited, detail: edited == heardTranscript ? "transcriptConfirmed" : "transcriptEdited")
+    }
+
+    /// The text is wrong: go back and record again.
+    public func rerecordTranscript() {
+        guard !busy, !closed, stage == .transcriptConfirmation else { return }
+        let revision = confirmingRevision
+        clearConfirmation()
+        AppLog.shared.record(.flow, .progress, operationId: session, detail: "transcriptRerecord")
+        stage = revision ? .revisionRecording : .question
+        changed()
+    }
+
+    private func continueConfirmed(_ text: String, detail: String) async {
+        guard !busy, !closed, stage == .transcriptConfirmation, !text.isEmpty else { return }
+        busy = true
+        let current = session
+        defer {
+            if isCurrent(current) {
+                busy = false
+                changed()
+            }
+        }
+        let raw = rawTranscript
+        let revision = confirmingRevision
+        clearConfirmation()
+        AppLog.shared.record(.flow, .progress, operationId: current, detail: detail)
+        if detail == "transcriptEdited" { AppLog.shared.recordTranscription(text, operationId: current, corrected: true) }
+        await proceed(with: text, raw: raw, revision: revision, session: current)
+    }
+
+    private func clearConfirmation() {
+        heardTranscript = ""
+        rawTranscript = ""
+        confirmingRevision = false
     }
 
     private func confirmName(from text: String, session current: Int) async {
@@ -504,7 +626,7 @@ public final class LifeSession {
         var era = "1960s-1980s"
         var location = "Taiwan"
         do {
-            let data = try await ai.sceneData(from: text)
+            let data = try await ai.sceneData(from: text, context: memoryContext)
             guard isCurrent(current) else { return }
             keywords = data.keywords
             if !data.scene.isEmpty { scene = data.scene }

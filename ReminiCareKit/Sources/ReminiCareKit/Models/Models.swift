@@ -99,13 +99,20 @@ public struct ConversationTurn: Codable, Sendable, Hashable {
     public var kind: ConversationTurnKind
     public var createdAt: Date
     public var imagePath: String
+    /// Speech-recognition output when it differs from `text` (AI-corrected or
+    /// edited by hand); nil in older records.
+    public var rawText: String?
 
-    public init(question: String, text: String, kind: ConversationTurnKind, createdAt: Date = Date(), imagePath: String = "") {
+    public init(
+        question: String, text: String, kind: ConversationTurnKind, createdAt: Date = Date(), imagePath: String = "",
+        rawText: String? = nil
+    ) {
         self.question = question
         self.text = text
         self.kind = kind
         self.createdAt = createdAt
         self.imagePath = imagePath
+        self.rawText = rawText
     }
 }
 

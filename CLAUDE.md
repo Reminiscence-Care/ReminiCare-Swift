@@ -52,6 +52,9 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 `@MainActor @Observable` 的狀態機，`LifeStage`：topicLoading → topicSelection → introduction → question → imageGenerating → evaluation ⇄ revisionRecording／revisionGenerating → summary。
 
+- 回答與修圖要求辨識完成後：設定 `STT_LLM_CORRECTION`（預設開）時，先用 `ReminiscenceAI.correctTranscript` 依問題校正同音或近音錯字。失敗、逾時（20 秒）或改動過多就沿用原文，不顯示錯誤。設定 `STT_CONFIRM_TRANSCRIPT`（預設關）時，進入 `transcriptConfirmation`，由人確認、修改或重新錄音後才生圖。原文和採用的文字不同時，原文存在 `ConversationTurn.rawText`。
+- 自我介紹**不**校正：稱呼不自動改字，同音由人確認。
+
 - 所有屬性 `private(set)`，畫面只能呼叫具名方法（`selectTopic`、`startAnswerRecording`、`chooseLike` …）。
 - 每次重新開始都遞增 `session`；任何 `await` 之後更新狀態前必須 `guard isCurrent(current)`，避免舊結果覆蓋新流程。新增非同步步驟沿用此模式。
 - 依賴全部由建構子注入；`LifeSession.live()` 透過 `ServiceFactory` 依目前設定組出正式實作。測試直接注入 fakes。
@@ -92,6 +95,7 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 | `[STT] 收到回應・雅婷 STT 辨識完成  進度=N/N` | N 是雅婷辨識出的句數；0 句且錄音正常＝雅婷端沒聽出內容 |
 | `[STT] 警告・辨識完成但沒有任何文字` | 對照上面錄音那行判斷是錄音還是辨識的問題 |
 | `[AI] 失敗・LLM：…` | 哪個步驟的 LLM 失敗；前一行 `[LLM]` 有 HTTP 狀態與錯誤種類 |
+| `[STT] 辨識結果` 之後接 `[STT] 校正後文字` | 前者是 STT 原文，後者是 AI 校正或人工修改後實際採用的文字；`[AI] 警告・AI 校正…沿用原文` 代表校正沒有套用 |
 
 設定頁另有「服務狀態」（`Config/ServiceHealth.swift`，用表單目前的值、最便宜的請求檢查 Key 無效／額度／限流／連不上；Cloudflare 用 415 探測 token、不產生圖片）與「錄音測試」（`Audio/RecordingTest.swift`，與對話同一套錄音器，可播放、送 STT、複製診斷、分享音檔）。
 

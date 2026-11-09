@@ -9,7 +9,7 @@ public enum LogEvent: String, Sendable {
     case started, completed, failed, cancelled, progress, stageChanged, warning
     case recordingStopped, requestStarted, requestCompleted, requestFailed
     case cacheHit, saving, saved, cleared, frameworkError
-    case transcription, partialTranscription
+    case transcription, partialTranscription, correctedTranscription
 
     var label: String {
         switch self {
@@ -31,6 +31,7 @@ public enum LogEvent: String, Sendable {
         case .frameworkError: "介面錯誤"
         case .transcription: "辨識結果"
         case .partialTranscription: "部分辨識結果（未完整成功）"
+        case .correctedTranscription: "校正後文字"
         }
     }
 }
@@ -130,6 +131,7 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "topicLoading": "載入主題", "topicSelection": "選擇主題", "introduction": "自我介紹",
         "question": "分享回憶", "imageGenerating": "產生回憶圖片", "evaluation": "確認圖片",
         "revisionRecording": "說明修圖要求", "revisionGenerating": "修改圖片", "summary": "摘要",
+        "transcriptConfirmation": "確認辨識文字",
         "idle": "待命", "preparing": "準備錄音", "recording": "錄音中", "stopping": "停止中",
         "completed": "完成", "failed": "失敗", "manual": "手動停止", "silence": "停頓停止",
         "maximumDuration": "錄音時間上限", "cancelled": "取消", "interrupted": "中斷",
@@ -199,6 +201,16 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "elderName": "LLM：擷取稱呼",
         "followUp": "LLM：產生延伸問題",
         "sceneData": "LLM：整理回憶內容",
+        "transcriptCorrection": "LLM：校正辨識文字",
+        // 辨識文字校正與確認
+        "transcriptCorrected": "AI 已校正辨識錯字",
+        "transcriptUnchanged": "AI 校正：不需修改",
+        "correctionRejected": "AI 校正結果改動過多，沿用原文",
+        "correctionTimeout": "AI 校正逾時，沿用原文",
+        "correctionFailed": "AI 校正失敗，沿用原文",
+        "transcriptConfirmed": "已確認辨識文字",
+        "transcriptEdited": "已手動修改辨識文字",
+        "transcriptRerecord": "辨識文字不對，重新錄音",
         // 服務狀態檢查
         "healthCheck": "服務狀態檢查",
         "healthOk": "服務檢查：可用",
@@ -255,13 +267,14 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         }
     }
 
-    public func recordTranscription(_ text: String, operationId: Int, partial: Bool = false) {
+    /// `corrected` marks text after AI correction or hand editing.
+    public func recordTranscription(_ text: String, operationId: Int, partial: Bool = false, corrected: Bool = false) {
         let truncated = text.count > Self.maxTranscriptCharacters
         let kept = truncated ? String(text.prefix(Self.maxTranscriptCharacters)) : text
         append { id, time, elapsed in
             AppLogEntry(
                 id: id, time: time, elapsed: elapsed, area: .stt,
-                event: partial ? .partialTranscription : .transcription,
+                event: corrected ? .correctedTranscription : (partial ? .partialTranscription : .transcription),
                 operationId: operationId, transcript: kept, transcriptTruncated: truncated
             )
         }
