@@ -143,6 +143,11 @@ struct SettingsView: View {
                     } label: {
                         Label("錄音測試", systemImage: "waveform.badge.mic")
                     }
+                    NavigationLink {
+                        NetworkCheckView()
+                    } label: {
+                        Label("網路檢測", systemImage: "network")
+                    }
                 }
             }
             .navigationTitle("ReminiCare AI 設定")

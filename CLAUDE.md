@@ -97,7 +97,7 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 | `[AI] 失敗・LLM：…` | 哪個步驟的 LLM 失敗；前一行 `[LLM]` 有 HTTP 狀態與錯誤種類 |
 | `[STT] 辨識結果` 之後接 `[STT] 校正後文字` | 前者是 STT 原文，後者是 AI 校正或人工修改後實際採用的文字；`[AI] 警告・AI 校正…沿用原文` 代表校正沒有套用 |
 
-設定頁另有「服務狀態」（`Config/ServiceHealth.swift`，用表單目前的值、最便宜的請求檢查 Key 無效／額度／限流／連不上；Cloudflare 用 415 探測 token、不產生圖片）與「錄音測試」（`Audio/RecordingTest.swift`，與對話同一套錄音器，可播放、送 STT、複製診斷、分享音檔）。
+設定頁另有「服務狀態」（`Config/ServiceHealth.swift`，用表單目前的值、最便宜的請求檢查 Key 無效／額度／限流／連不上；Cloudflare 用 415 探測 token、不產生圖片）與「錄音測試」（`Audio/RecordingTest.swift`，與對話同一套錄音器，可播放、送 STT、複製診斷、分享音檔），以及「網路檢測」（`Config/NetworkCheck.swift`）：網路類型／VPN／代理、Apple captive portal 檢查是否要先登入 Wi-Fi，各服務主機 HTTPS（不帶任何 Key），以及雅婷 WebSocket（取 token → 連線 → 等伺服器回 ready 就關，不送音訊），每項 3 次，失敗原因分 DNS／被拒／TLS 被攔截／逾時／WebSocket 被關等，結果寫進 App Log（`network` 區）。雅婷 HTTPS 正常但 WebSocket 失敗＝該網路不允許 WebSocket。
 
 ### 錯誤回報 `Support/ErrorReport.swift`＋`report-worker/`
 

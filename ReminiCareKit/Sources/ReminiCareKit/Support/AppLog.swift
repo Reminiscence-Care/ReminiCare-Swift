@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 public enum LogArea: String, Sendable, CaseIterable {
-    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache, report
+    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache, report, network
 }
 
 public enum LogEvent: String, Sendable {
@@ -219,6 +219,34 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "report_rejected": "錯誤回報：格式不被接受",
         "report_server": "錯誤回報：服務暫時無法使用，已保存待重送",
         "report_network": "錯誤回報：連不上網路，已保存待重送",
+        // 網路檢測
+        "netCheck": "網路檢測",
+        "netEnv_wifi": "網路：Wi-Fi",
+        "netEnv_cellular": "網路：行動網路",
+        "netEnv_wired": "網路：有線網路",
+        "netEnv_other": "網路：其他",
+        "netEnv_none": "網路：沒有連線",
+        "netEnvVpn": "網路：使用 VPN",
+        "netEnvProxy": "網路：使用代理伺服器",
+        "netTarget_internet": "網路檢測：一般上網",
+        "netTarget_yatingHttps": "網路檢測：雅婷 HTTPS",
+        "netTarget_yatingWs": "網路檢測：雅婷語音辨識 WebSocket",
+        "netTarget_nckuStt": "網路檢測：成大語音辨識",
+        "netTarget_llm": "網路檢測：語言模型",
+        "netTarget_image": "網路檢測：生圖",
+        "netTarget_report": "網路檢測：錯誤回報",
+        "netReason_offline": "原因：沒有網路",
+        "netReason_dns": "原因：DNS 找不到網址（可能被封鎖）",
+        "netReason_refused": "原因：連線被拒（可能被防火牆擋）",
+        "netReason_lost": "原因：連線中途斷掉",
+        "netReason_tls": "原因：加密連線被攔截（防火牆或代理）",
+        "netReason_timeout": "原因：沒有回應（網路慢或被默默擋掉）",
+        "netReason_captivePortal": "原因：Wi-Fi 需要先登入網頁",
+        "netReason_httpError": "原因：伺服器回傳錯誤",
+        "netReason_tokenRejected": "原因：雅婷拒絕取得連線憑證",
+        "netReason_notReady": "原因：雅婷伺服器沒有回報就緒",
+        "netReason_closed": "原因：連線一建立就被關閉（可能不允許 WebSocket）",
+        "netReason_unexpected": "原因：未預期的錯誤",
         // 服務狀態檢查
         "healthCheck": "服務狀態檢查",
         "healthOk": "服務檢查：可用",
