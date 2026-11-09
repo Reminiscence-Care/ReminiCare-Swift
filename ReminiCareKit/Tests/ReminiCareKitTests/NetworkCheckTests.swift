@@ -3,7 +3,7 @@ import Testing
 @testable import ReminiCareKit
 
 /// Answers by host; a host mapped to a URLError fails with it.
-private struct HostHTTP: HTTPSending {
+struct HostHTTP: HTTPSending {
     let failures: [String: URLError.Code]
     let flaky: LockedValue<[String: Int]>
     let seen = LockedValue<[URLRequest]>([])
@@ -34,7 +34,7 @@ private struct HostHTTP: HTTPSending {
     }
 }
 
-private struct ReadyChannel: YatingChannel {
+struct ReadyChannel: YatingChannel {
     let reply: String?
     func send(_ data: Data) async throws {}
     func receive() async throws -> String? { reply }
