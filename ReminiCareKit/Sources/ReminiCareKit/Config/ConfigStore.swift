@@ -43,7 +43,7 @@ public final class ConfigStore: @unchecked Sendable {
     public static let secretKeys: Set<String> = [
         "NVIDIA_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY",
         "CLOUDFLARE_IMAGE_APP_TOKEN", "CUSTOM_LLM_API_KEY", "CUSTOM_IMAGE_API_KEY",
-        "NCKU_TTS_TOKEN", "NCKU_STT_TOKEN", "YATING_API_KEY",
+        "NCKU_TTS_TOKEN", "NCKU_STT_TOKEN", "YATING_API_KEY", "GROQ_API_KEY",
     ]
 
     public static let fields: [ConfigField] = [
@@ -57,6 +57,7 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField("NVIDIA_API_KEY", "NVIDIA API Key", hint: "nvapi-..."),
         ConfigField("GEMINI_API_KEY", "Gemini API Key", hint: "AIza..."),
         ConfigField("OPENAI_API_KEY", "OpenAI API Key", hint: "sk-..."),
+        ConfigField("GROQ_API_KEY", "Groq API Key", hint: "gsk_..."),
         ConfigField("SILICONFLOW_API_KEY", "SiliconFlow API Key", hint: "sk-..."),
         ConfigField("CLOUDFLARE_IMAGE_APP_TOKEN", "Cloudflare Image App Token", hint: "與 Worker APP_API_TOKEN 相同的值"),
         ConfigField("CLOUDFLARE_IMAGE_WORKER_URL", "Cloudflare Image Worker URL", hint: "https://reminicare-image-api.<subdomain>.workers.dev", secure: false, default: "https://reminicare-image-api.hding49.workers.dev"),
@@ -72,6 +73,7 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField("NVIDIA_LLM_MODEL", "NVIDIA LLM 模型", hint: "deepseek-ai/deepseek-v4.1-flash", secure: false, default: "deepseek-ai/deepseek-v4.1-flash"),
         ConfigField("OPENAI_LLM_MODEL", "OpenAI LLM 模型", hint: "gpt-4o-mini", secure: false, default: "gpt-4o-mini"),
         ConfigField("GEMINI_LLM_MODEL", "Gemini LLM 模型", hint: "gemini-2.5-flash", secure: false, default: "gemini-2.5-flash"),
+        ConfigField("GROQ_LLM_MODEL", "Groq LLM 模型", hint: "qwen/qwen3.8-27b", secure: false, default: "qwen/qwen3.8-27b"),
         ConfigField(ConfigKey.maxRecord, "最長錄音秒數", hint: "180", secure: false, default: "180"),
         ConfigField(ConfigKey.transcriptCorrection, "用 AI 校正辨識錯字", hint: "true", secure: false, default: "true"),
         ConfigField(ConfigKey.transcriptConfirmation, "生圖前確認辨識文字", hint: "false", secure: false, default: "false"),
@@ -252,6 +254,7 @@ public final class ConfigStore: @unchecked Sendable {
         switch provider {
         case "openai": "OPENAI_API_KEY"
         case "gemini": "GEMINI_API_KEY"
+        case "groq": "GROQ_API_KEY"
         case "custom": "CUSTOM_LLM_API_KEY"
         default: "NVIDIA_API_KEY"
         }
@@ -261,6 +264,7 @@ public final class ConfigStore: @unchecked Sendable {
         switch provider {
         case "openai": "OPENAI_LLM_MODEL"
         case "gemini": "GEMINI_LLM_MODEL"
+        case "groq": "GROQ_LLM_MODEL"
         case "custom": "CUSTOM_LLM_MODEL"
         default: "NVIDIA_LLM_MODEL"
         }

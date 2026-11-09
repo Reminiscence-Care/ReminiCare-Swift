@@ -29,8 +29,17 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
     public let apiKey: @Sendable () -> String
     public var http: HTTPSending = URLSession.shared
     public var connect: @Sendable (URL) -> YatingChannel = { URLSessionYatingChannel(url: $0) }
+    /// How long to wait for the final result after the audio has been sent.
     public var completionTimeout: Duration = .seconds(30)
+    /// Pause between 2,000-byte chunks: 62.5 ms streams 16 kHz audio in real time.
     public var sendDelay: Duration = .microseconds(62_500)
+
+    /// Time to stream `bytes` of audio. The completion wait starts with the
+    /// stream, so it must cover this too: with a flat 30 s, any answer longer
+    /// than about 28 s always timed out, and shorter ones did on slow networks.
+    func streamingTime(bytes: Int) -> Duration {
+        sendDelay * ((bytes + 1_999) / 2_000)
+    }
 
     public init(apiKey: @escaping @Sendable () -> String) { self.apiKey = apiKey }
 
@@ -123,7 +132,7 @@ public struct YatingSpeechRecognizer: SpeechRecognizer {
                 try await channel.send(Data())
             }
             defer { sender.cancel() }
-            try await withTimeout(completionTimeout) {
+            try await withTimeout(streamingTime(bytes: pcm.count) + completionTimeout) {
                 while try handle(await channel.receive()) != .eof {}
             }
         } catch let error as SttError {

@@ -61,7 +61,7 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 ### 服務組裝 `Session/ServiceFactory.swift`
 
-依 `ConfigStore` 的 provider 選擇建立：LLM（OpenAI 相容，NVIDIA／Gemini／OpenAI／custom）、生圖（Cloudflare Worker 或 OpenAI 相容）、語音（`selectedSpeechProvider` = `ncku` 或雅婷）。台語 TTS 備援鏈：成大 9998 原文 → LLM 轉台羅（沒有轉台羅 Key 就跳過）→ 舊服務 10012。`missingConfiguration()` 決定能否開始對話。
+依 `ConfigStore` 的 provider 選擇建立：LLM（OpenAI 相容，NVIDIA／Gemini／OpenAI／Groq／custom；Groq 免費的 `qwen/qwen3.8-27b` 在 2026-11-09 用虛構口誤句實測 7 個免費模型中校正最準最快，Qwen3 送 `reasoning_effort: none` 避免思考內容混進答案）、生圖（Cloudflare Worker 或 OpenAI 相容）、語音（`selectedSpeechProvider` = `ncku` 或雅婷）。台語 TTS 備援鏈：成大 9998 原文 → LLM 轉台羅（沒有轉台羅 Key 就跳過）→ 舊服務 10012。`missingConfiguration()` 決定能否開始對話。
 
 ### 可替換的邊界（測試時用 fake）
 

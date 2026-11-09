@@ -32,6 +32,7 @@ public enum TaiLoModelSettings {
     public static let providers: [(id: String, label: String)] = [
         ("openai", "OpenAI（建議）"),
         ("gemini", "Google Gemini"),
+        ("groq", "Groq"),
         ("nvidia", "NVIDIA（目前很慢，不建議）"),
         (followCurrent, "跟隨上方語言模型"),
     ]
