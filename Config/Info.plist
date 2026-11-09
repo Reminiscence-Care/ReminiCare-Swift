@@ -6,6 +6,10 @@
 	     xtool builds stamp it in scripts/xtool-wsl.sh. Empty for local Xcode builds. -->
 	<key>ReminiCareCommit</key>
 	<string>$(REMINICARE_COMMIT)</string>
+	<!-- "release" only in tag builds (build-ipa.yml): those check GitHub for a
+	     newer release on launch. xtool and local builds leave it empty. -->
+	<key>ReminiCareChannel</key>
+	<string>$(REMINICARE_CHANNEL)</string>
 	<!-- NCKU speech services are reached over plain HTTP by IP address. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

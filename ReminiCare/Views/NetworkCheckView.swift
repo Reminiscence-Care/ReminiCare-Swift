@@ -10,7 +10,7 @@ struct NetworkCheckView: View {
     var body: some View {
         Form {
             Section {
-                Text("檢查目前的網路能不能連到 App 用到的每個服務，每項試 \(NetworkCheck.attempts) 次。包含語音辨識實際使用、但學校或公司防火牆常擋的 WebSocket 連線。不會送出錄音或對話內容，結果會記在執行紀錄裡。")
+                Text("檢查目前的網路能不能連到 App 用到的每個服務，每項試 \(NetworkCheck.attempts) 次；語音經 Worker 時也會確認 App Token 與雅婷額度。不會送出錄音或對話內容，結果會記在執行紀錄裡。")
                     .font(.footnote).foregroundStyle(.secondary)
                 Button {
                     copied = false

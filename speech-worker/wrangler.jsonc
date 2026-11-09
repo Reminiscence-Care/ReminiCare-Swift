@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reminicare-speech-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Secrets (wrangler secret put): YATING_API_KEY, APP_TOKEN
+  "ratelimits": [
+    {
+      "name": "SPEECH_RATE_LIMITER",
+      "namespace_id": "2042",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

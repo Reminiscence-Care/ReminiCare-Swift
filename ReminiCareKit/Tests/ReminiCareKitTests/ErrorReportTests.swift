@@ -9,6 +9,7 @@ private func configWithSecrets() throws -> ConfigStore {
     let secrets = MemorySecretStore()
     try secrets.write("OPENAI_API_KEY", value: sentinel)
     try secrets.write("YATING_API_KEY", value: sentinel + "-yating")
+    try secrets.write(ConfigKey.speechWorkerToken, value: sentinel + "-worker")
     let defaults = UserDefaults(suiteName: "reminicare-tests-\(UUID().uuidString)")!
     defaults.set("openai", forKey: ConfigKey.llmProvider)
     defaults.set("https://user:\(sentinel)@llm.example.com/v1?key=\(sentinel)", forKey: "CUSTOM_LLM_BASE_URL")

@@ -44,7 +44,7 @@ esac
 mkdir -p "$work"
 find "$work" -mindepth 1 -maxdepth 1 ! -name .build -exec rm -rf {} +   # keep the build cache only
 (cd "$repo" && tar --exclude=./.git --exclude=./xtool --exclude=./build --exclude='*/.build' --exclude=./.build \
-    --exclude=./report-worker -cf - .) \
+    --exclude=./report-worker --exclude=./speech-worker -cf - .) \
     | (cd "$work" && tar -xf -)
 
 # 4. Stamp the commit into the app so problem reports say which code is running.
@@ -58,5 +58,13 @@ fi
 sed -i "s|<key>CFBundleDisplayName</key>|<key>ReminiCareCommit</key>\n\t<string>$commit</string>\n\t<key>CFBundleDisplayName</key>|" \
     "$work/Config/xtool-Info.plist"
 echo "Commit stamped into the app: $commit"
+# Version = latest release tag this build contains, so "檢查更新" compares against it
+# instead of the plist's placeholder 2.0.0.
+version="$(git -c safe.directory='*' -C "$repo" describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//')"
+if [ -n "$version" ]; then
+    sed -i "/<key>CFBundleShortVersionString<\/key>/{n;s|<string>[^<]*</string>|<string>$version</string>|}" \
+        "$work/Config/xtool-Info.plist"
+    echo "Version stamped into the app: $version"
+fi
 cd "$work"
 exec xtool dev "$@"

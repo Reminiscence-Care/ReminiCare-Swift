@@ -20,9 +20,22 @@ public struct ServiceFactory: Sendable {
         return preset
     }
 
+    /// The chosen model first, then every other preset with a key as backup.
     public func llm() -> LlmClient {
         let settings = llmConfig()
-        return OpenAICompatibleLlmClient(config: settings, apiKey: config.value(settings.apiKeyReference))
+        var entries = [FallbackLlmClient.Entry(
+            providerId: settings.id,
+            client: OpenAICompatibleLlmClient(config: settings, apiKey: config.value(settings.apiKeyReference))
+        )]
+        for id in FallbackLlmClient.backupOrder where id != settings.id {
+            guard var preset = ProviderRegistry.llmPresets[id] else { continue }
+            let key = config.value(preset.apiKeyReference).trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty else { continue }
+            let model = config.value(ConfigStore.llmModelKey(id)).trimmingCharacters(in: .whitespaces)
+            if !model.isEmpty { preset.model = model }
+            entries.append(.init(providerId: id, client: OpenAICompatibleLlmClient(config: preset, apiKey: key)))
+        }
+        return FallbackLlmClient(entries)
     }
 
     public func reminiscenceAI() -> ReminiscenceAI { ReminiscenceAI(client: llm()) }
@@ -49,21 +62,35 @@ public struct ServiceFactory: Sendable {
             : OpenAICompatibleImageClient(config: settings, apiKey: key)
     }
 
-    private var usesNcku: Bool { config.value(ConfigKey.speechProvider) == "ncku" }
+    private var speech: SpeechProvider { SpeechProvider(config.value(ConfigKey.speechProvider)) }
+    private var usesNcku: Bool { speech == .ncku }
 
+    /// Every recognizer gets one automatic retry of the same recording.
     public func recognizer() -> SpeechRecognizer {
+        RetryingSpeechRecognizer(baseRecognizer())
+    }
+
+    func baseRecognizer() -> SpeechRecognizer {
         let config = config
-        if usesNcku {
+        switch speech {
+        case .ncku:
             let raw = config.value("NCKU_STT_URL")
             let endpoint = URL(string: raw.isEmpty ? ConfigKey.defaultNckuSttURL : raw) ?? URL(string: ConfigKey.defaultNckuSttURL)!
             return NckuSpeechRecognizer(token: { config.value("NCKU_STT_TOKEN") }, endpoint: endpoint)
+        case .yatingDirect:
+            return YatingSpeechRecognizer(apiKey: { config.value("YATING_API_KEY") })
+        case .yating:
+            return YatingWorkerRecognizer(endpoint: { config.speechWorker })
         }
-        return YatingSpeechRecognizer(apiKey: { config.value("YATING_API_KEY") })
     }
 
     public func synthesizer() -> SpeechSynthesizer {
         let config = config
-        guard usesNcku else { return YatingSpeechSynthesizer(apiKey: { config.value("YATING_API_KEY") }) }
+        switch speech {
+        case .yating: return YatingWorkerSynthesizer(endpoint: { config.speechWorker })
+        case .yatingDirect: return YatingSpeechSynthesizer(apiKey: { config.value("YATING_API_KEY") })
+        case .ncku: break
+        }
         let host = config.value("NCKU_TTS_HOST")
         return NckuSpeechSynthesizer(
             host: host.isEmpty ? ConfigKey.defaultNckuTtsHost : host,
@@ -91,9 +118,11 @@ public struct ServiceFactory: Sendable {
         let image = config.value(ConfigKey.imageProvider)
         if config.value(ConfigStore.llmKey(llm)).isEmpty { return "請設定目前 LLM Provider 的 API Key。" }
         if config.value(ConfigStore.imageKey(image)).isEmpty { return "請設定目前生圖 Provider 的 API Key。" }
-        let speechReady = usesNcku
-            ? !config.value("NCKU_STT_TOKEN").isEmpty && !config.value("NCKU_TTS_TOKEN").isEmpty
-            : !config.value("YATING_API_KEY").isEmpty
+        let speechReady = switch speech {
+        case .ncku: !config.value("NCKU_STT_TOKEN").isEmpty && !config.value("NCKU_TTS_TOKEN").isEmpty
+        case .yatingDirect: !config.value("YATING_API_KEY").isEmpty
+        case .yating: !config.value(ConfigKey.speechWorkerToken).isEmpty
+        }
         if !speechReady { return "請設定目前語音服務需要的 Token。" }
         return config.validate([:])
     }

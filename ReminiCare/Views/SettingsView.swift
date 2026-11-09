@@ -7,7 +7,7 @@ struct SettingsView: View {
     @State private var values: [String: String] = [:]
     @State private var llm = "nvidia"
     @State private var image = "cloudflare"
-    @State private var speech = "yating"
+    @State private var speech = SpeechProvider.yating.rawValue
     @State private var fallback = TaiwaneseTtsFallback.llmThenLegacy
     @State private var taiLoProvider = TaiLoModelSettings.defaultProvider
     @State private var saving = false
@@ -18,7 +18,8 @@ struct SettingsView: View {
 
     private var visibleKeys: [String] {
         var keys = [ConfigStore.llmKey(llm), ConfigStore.llmModelKey(llm), ConfigStore.imageKey(image)]
-        if speech == "ncku" {
+        switch SpeechProvider(speech) {
+        case .ncku:
             keys += ["NCKU_TTS_TOKEN", "NCKU_STT_TOKEN"]
             if fallback.usesLlm {
                 keys.append(ConfigKey.taiLoModel)
@@ -26,8 +27,10 @@ struct SettingsView: View {
                     ? ConfigStore.llmKey(llm)
                     : ConfigStore.llmKey(taiLoProvider))
             }
-        } else {
+        case .yatingDirect:
             keys.append("YATING_API_KEY")
+        case .yating:
+            keys += [ConfigKey.speechWorkerToken, ConfigKey.speechWorkerURL]
         }
         keys += [ConfigKey.maxRecord, ConfigKey.introSilence, ConfigKey.chatSilence]
         if llm == "custom" { keys.append("CUSTOM_LLM_BASE_URL") }
@@ -76,8 +79,11 @@ struct SettingsView: View {
                     }
                     Text("生圖：\(imageInfo)").font(.footnote).foregroundStyle(.secondary)
                     Picker("語音服務", selection: $speech) {
-                        Text("雅婷").tag("yating")
-                        Text("成大 NCKU").tag("ncku")
+                        ForEach(SpeechProvider.allCases, id: \.self) { Text($0.label).tag($0.rawValue) }
+                    }
+                    if SpeechProvider(speech) == .yating {
+                        Text("語音經 ReminiCare Worker 轉送：只用一般 HTTPS，學校或公司網路擋 WebSocket 時也能辨識；雅婷 Key 放在 Worker，這裡只填 App Token。")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     if speech == "ncku" {
                         Picker("台語語音備援", selection: $fallback) {
@@ -148,6 +154,7 @@ struct SettingsView: View {
                     } label: {
                         Label("網路檢測", systemImage: "network")
                     }
+                    UpdateRow()
                 }
             }
             .navigationTitle("ReminiCare AI 設定")

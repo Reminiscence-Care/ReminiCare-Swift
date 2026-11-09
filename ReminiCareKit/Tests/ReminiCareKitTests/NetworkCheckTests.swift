@@ -28,6 +28,10 @@ struct HostHTTP: HTTPSending {
         switch host {
         case "captive.apple.com": (status, body) = (200, "<HTML><BODY>Success</BODY></HTML>")
         case "asr.api.yating.tw" where request.url?.path == "/v1/token": (status, body) = (201, #"{"success":true,"auth_token":"t"}"#)
+        case "reminicare-speech-api.hding49.workers.dev" where request.url?.path == "/health": (status, body) = (200, #"{"ok":true}"#)
+        case "reminicare-speech-api.hding49.workers.dev" where request.url?.path == "/v1/check":
+            (status, body) = request.value(forHTTPHeaderField: "Authorization") == "Bearer app"
+                ? (200, #"{"ok":true}"#) : (401, #"{"error":"unauthorized"}"#)
         default: (status, body) = (404, "{}")
         }
         return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
@@ -43,9 +47,10 @@ struct ReadyChannel: YatingChannel {
 
 @MainActor
 @Suite struct NetworkCheckTests {
-    func config(speech: String = "yating", yatingKey: String = "key") throws -> ConfigStore {
+    func config(speech: String = "yatingDirect", yatingKey: String = "key", workerToken: String = "app") throws -> ConfigStore {
         let secrets = MemorySecretStore()
         try secrets.write("YATING_API_KEY", value: yatingKey)
+        try secrets.write(ConfigKey.speechWorkerToken, value: workerToken)
         try secrets.write("NVIDIA_API_KEY", value: "SENTINEL-nvidia")
         let defaults = UserDefaults(suiteName: "reminicare-tests-\(UUID().uuidString)")!
         defaults.set(speech, forKey: ConfigKey.speechProvider)
@@ -144,6 +149,42 @@ struct ReadyChannel: YatingChannel {
         #expect(check.items.map(\.id) == ["internet", "nckuStt", "llm", "image", "report"])
     }
 
+    @Test func workerIsCheckedInsteadOfTheSocket() async throws {
+        let http = HostHTTP()
+        let check = check(http, config: try config(speech: "yating"))
+        await check.run()
+        #expect(check.items.map(\.id) == ["internet", "speechWorker", "llm", "image", "report"])
+        let worker = try item(check, "speechWorker")
+        #expect(worker.status == .ok && worker.successes == 3)
+        #expect(worker.note == "reminicare-speech-api.hding49.workers.dev")
+        // The app token goes only to the Worker's /v1/check, never to /health.
+        for request in http.seen.current {
+            let auth = request.value(forHTTPHeaderField: "Authorization")
+            #expect((auth != nil) == (request.url?.path == "/v1/check"))
+        }
+    }
+
+    @Test func wrongWorkerTokenIsNamed() async throws {
+        let check = check(HostHTTP(), config: try config(speech: "yating", workerToken: "wrong"))
+        await check.run()
+        let worker = try item(check, "speechWorker")
+        #expect(worker.status == .failed)
+        #expect(worker.failure == .unauthorized)
+    }
+
+    @Test func quickCheckTriesOnceAndSkipsReportAndToken() async throws {
+        let http = HostHTTP(failures: ["integrate.api.nvidia.com": .cannotFindHost])
+        let check = NetworkCheck(
+            config: try config(speech: "yating"), http: http, connect: { _ in ReadyChannel(reply: nil) },
+            environment: { NetworkEnvironment(interface: .wifi) }, timeout: .seconds(2), attempts: 1, quick: true
+        )
+        await check.run()
+        #expect(check.items.map(\.id) == ["internet", "speechWorker", "llm", "image"])
+        #expect(check.items.allSatisfy { $0.attempts == 1 })
+        #expect(check.failedItems.map(\.id) == ["llm"])
+        #expect(!http.seen.current.contains { $0.url?.path == "/v1/check" })
+    }
+
     @Test func noYatingKeySkipsTheSocket() async throws {
         let check = check(HostHTTP(), config: try config(yatingKey: ""))
         await check.run()
@@ -154,8 +195,9 @@ struct ReadyChannel: YatingChannel {
         let check = check(HostHTTP(failures: ["captive.apple.com": .timedOut]), reply: nil, config: try config())
         await check.run()
         let codes = ["netCheck", "netEnv_wifi", "netEnvVpn", "netEnvProxy"]
-            + ["internet", "yatingHttps", "yatingWs", "nckuStt", "llm", "image", "report"].map { "netTarget_\($0)" }
-            + ["offline", "dns", "refused", "lost", "tls", "timeout", "captivePortal", "httpError", "tokenRejected", "notReady", "closed", "unexpected"].map { "netReason_\($0)" }
+            + ["internet", "yatingHttps", "yatingWs", "nckuStt", "llm", "image", "report", "speechWorker"].map { "netTarget_\($0)" }
+            + ["offline", "dns", "refused", "lost", "tls", "timeout", "captivePortal", "httpError", "tokenRejected", "notReady", "closed", "unauthorized", "unexpected"].map { "netReason_\($0)" }
+            + ["netQuickCheck"]
         for code in codes { #expect(AppLog.detailLabels[code] != nil, "\(code)") }
     }
 }

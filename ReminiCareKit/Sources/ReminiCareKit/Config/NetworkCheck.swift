@@ -71,7 +71,7 @@ public struct NetworkEnvironment: Sendable, Equatable {
 
 /// Why a connection attempt failed, in words someone on site can act on.
 public enum NetworkFailure: String, Sendable, Equatable {
-    case offline, dns, refused, lost, tls, timeout, captivePortal, httpError, tokenRejected, notReady, closed, unexpected
+    case offline, dns, refused, lost, tls, timeout, captivePortal, httpError, tokenRejected, notReady, closed, unauthorized, unexpected
 
     public var advice: String {
         switch self {
@@ -86,6 +86,7 @@ public enum NetworkFailure: String, Sendable, Equatable {
         case .tokenRejected: "雅婷拒絕取得連線憑證：請確認 Key 或額度（服務狀態頁可查）。"
         case .notReady: "已連上雅婷，但伺服器沒有回報就緒。"
         case .closed: "辨識連線一建立就被關閉：很可能是防火牆或代理伺服器不允許 WebSocket。"
+        case .unauthorized: "語音 Worker 不接受這個 App Token：請到設定頁確認「語音 Worker App Token」。"
         case .unexpected: "未預期的錯誤。"
         }
     }
@@ -147,6 +148,12 @@ public final class NetworkCheck {
     public nonisolated static let attempts = 3
     public nonisolated static let slowMs = 3_000
 
+    /// Before a conversation: one try per service, short timeout, no report or
+    /// WebSocket check. Only meant to warn, never to block.
+    public static func quick(config: ConfigStore = .shared) -> NetworkCheck {
+        NetworkCheck(config: config, timeout: .seconds(5), attempts: 1, quick: true)
+    }
+
     public private(set) var running = false
     public private(set) var environment: NetworkEnvironment?
     public private(set) var items: [NetworkCheckItem] = []
@@ -157,14 +164,23 @@ public final class NetworkCheck {
     @ObservationIgnored private let connect: @Sendable (URL) -> YatingChannel
     @ObservationIgnored private let readEnvironment: @Sendable () async -> NetworkEnvironment
     @ObservationIgnored private let timeout: Duration
+    @ObservationIgnored private let attemptCount: Int
+    @ObservationIgnored private let quick: Bool
+
+    /// Items that failed outright in the last run, for a warning.
+    public var failedItems: [NetworkCheckItem] { items.filter { $0.status == .failed } }
 
     public init(
         config: ConfigStore = .shared,
         http: HTTPSending = URLSession(configuration: .ephemeral),
         connect: @escaping @Sendable (URL) -> YatingChannel = { URLSessionYatingChannel(url: $0) },
         environment: @escaping @Sendable () async -> NetworkEnvironment = { await NetworkEnvironment.current() },
-        timeout: Duration = .seconds(10)
+        timeout: Duration = .seconds(10),
+        attempts: Int = NetworkCheck.attempts,
+        quick: Bool = false
     ) {
+        attemptCount = attempts
+        self.quick = quick
         self.config = config
         self.http = http
         self.connect = connect
@@ -178,22 +194,27 @@ public final class NetworkCheck {
         let url: URL
     }
 
+    private var speech: SpeechProvider { SpeechProvider(config.value(ConfigKey.speechProvider)) }
+
     private var targets: [Target] {
         let factory = ServiceFactory(config: config)
         var list: [Target] = []
         func add(_ id: String, _ title: String, _ raw: String) {
             if let url = URL(string: trimmedBase(raw)), url.host != nil { list.append(Target(id: id, title: title, url: url)) }
         }
-        if config.value(ConfigKey.speechProvider) == "ncku" {
+        switch speech {
+        case .ncku:
             let stt = config.value("NCKU_STT_URL")
             add("nckuStt", "成大語音辨識", stt.isEmpty ? ConfigKey.defaultNckuSttURL : stt)
-        } else {
+        case .yatingDirect:
             add("yatingHttps", "雅婷（HTTPS）", "https://asr.api.yating.tw")
+        case .yating:
+            break // checkSpeechWorker
         }
         let llm = factory.llmConfig()
         add("llm", "語言模型（\(llm.displayName)）", llm.baseURL)
         add("image", "生圖（\(factory.imageConfig().displayName)）", factory.imageConfig().baseURL)
-        add("report", "錯誤回報", config.value(ConfigKey.errorReportURL))
+        if !quick { add("report", "錯誤回報", config.value(ConfigKey.errorReportURL)) }
         return list
     }
 
@@ -201,7 +222,7 @@ public final class NetworkCheck {
         guard !running else { return }
         running = true
         finishedAt = nil
-        AppLog.shared.record(.network, .started, detail: "netCheck")
+        AppLog.shared.record(.network, .started, detail: quick ? "netQuickCheck" : "netCheck")
         let environment = await readEnvironment()
         self.environment = environment
         AppLog.shared.record(.network, .progress, detail: "netEnv_\(environment.interface.rawValue)")
@@ -209,20 +230,23 @@ public final class NetworkCheck {
         if environment.usesProxy { AppLog.shared.record(.network, .warning, detail: "netEnvProxy") }
 
         let targets = targets
-        let usesYating = config.value(ConfigKey.speechProvider) != "ncku"
+        let usesWorker = speech == .yating
+        let usesSocket = speech == .yatingDirect && !quick
         items = [NetworkCheckItem(id: "internet", title: "一般上網", status: .skipped)]
+            + (usesWorker ? [NetworkCheckItem(id: "speechWorker", title: Self.workerTitle, status: .skipped)] : [])
             + targets.map { NetworkCheckItem(id: $0.id, title: $0.title, status: .skipped) }
-            + (usesYating ? [NetworkCheckItem(id: "yatingWs", title: "雅婷語音辨識連線（WebSocket）", status: .skipped)] : [])
+            + (usesSocket ? [NetworkCheckItem(id: "yatingWs", title: "雅婷語音辨識連線（WebSocket）", status: .skipped)] : [])
 
         if environment.interface == .none {
             for index in items.indices { items[index].status = .failed; items[index].failure = .offline }
         } else {
             update(await checkInternet())
+            if usesWorker { update(await checkSpeechWorker()) }
             for target in targets { update(await checkHTTPS(target)) }
-            if usesYating { update(await checkYatingSocket()) }
+            if usesSocket { update(await checkYatingSocket()) }
         }
         for item in items { log(item) }
-        AppLog.shared.record(.network, .completed, detail: "netCheck")
+        AppLog.shared.record(.network, .completed, detail: quick ? "netQuickCheck" : "netCheck")
         finishedAt = Date()
         running = false
     }
@@ -280,6 +304,40 @@ public final class NetworkCheck {
         return item
     }
 
+    nonisolated static let workerTitle = "語音辨識（ReminiCare Worker）"
+
+    /// `/health` proves the Worker is reachable; the full check also asks it to
+    /// fetch a Yating token (`/v1/check`, no audio), which checks the app token
+    /// and the Worker's Yating key and quota.
+    private func checkSpeechWorker() async -> NetworkCheckItem {
+        var item = NetworkCheckItem(id: "speechWorker", title: Self.workerTitle, status: .ok)
+        let endpoint = config.speechWorker
+        guard let health = endpoint.url("/health"), let check = endpoint.request("/v1/check", method: "GET") else {
+            item.status = .failed
+            item.failure = .unexpected
+            item.note = "語音 Worker 網址必須是 HTTPS"
+            return item
+        }
+        let full = !quick && !endpoint.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let requests = full ? [URLRequest(url: health), check] : [URLRequest(url: health)]
+        let outcome = await attempt { [http, timeout] in
+            for original in requests {
+                var request = original
+                request.timeoutInterval = timeout.seconds
+                let prepared = request
+                let (data, response) = try await withTimeout(timeout) { try await http.send(prepared) }
+                guard response.statusCode == 200 else {
+                    if response.statusCode == 401 { throw WorkerRejected(failure: .unauthorized) }
+                    let code = SpeechWorkerEndpoint.errorCode(data)
+                    throw WorkerRejected(failure: ["quota", "upstream_auth"].contains(code) ? .tokenRejected : .httpError)
+                }
+            }
+        }
+        item.apply(outcome)
+        item.note = health.host
+        return item
+    }
+
     /// The path recognition really uses: token, WebSocket, server "ready".
     /// Closes as soon as the server is ready, without sending audio.
     private func checkYatingSocket() async -> NetworkCheckItem {
@@ -310,6 +368,7 @@ public final class NetworkCheck {
 
     private struct CaptivePortal: Error {}
     private struct NotReady: Error {}
+    private struct WorkerRejected: Error { let failure: NetworkFailure }
 
     struct Outcome {
         var times: [Int] = []
@@ -318,7 +377,7 @@ public final class NetworkCheck {
 
     private func attempt(_ operation: @escaping @Sendable () async throws -> Void) async -> Outcome {
         var outcome = Outcome()
-        for _ in 0..<Self.attempts {
+        for _ in 0..<attemptCount {
             let watch = Stopwatch()
             do {
                 try await operation()
@@ -327,6 +386,8 @@ public final class NetworkCheck {
                 outcome.failures.append(.captivePortal)
             } catch is NotReady {
                 outcome.failures.append(.notReady)
+            } catch let rejected as WorkerRejected {
+                outcome.failures.append(rejected.failure)
             } catch {
                 outcome.failures.append(NetworkFailure.from(error))
             }
