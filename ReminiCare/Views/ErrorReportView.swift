@@ -8,6 +8,8 @@ struct ErrorReportView: View {
     @State private var entries: [AppLogEntry] = []
     @State private var description = ""
     @State private var includeTranscripts = true
+    @State private var includeAudio = true
+    @State private var recordings: [URL] = []
     @State private var sending = false
     @State private var pending = 0
     @State private var result: ResultMessage?
@@ -22,7 +24,8 @@ struct ErrorReportView: View {
 
     private var preview: ErrorReport {
         ErrorReportBuilder.make(
-            description: description, includeTranscripts: includeTranscripts, entries: entries, config: .shared
+            description: description, includeTranscripts: includeTranscripts,
+            audioCount: includeAudio ? recordings.count : 0, entries: entries, config: .shared
         )
     }
 
@@ -51,6 +54,11 @@ struct ErrorReportView: View {
                     Toggle("附上語音辨識文字", isOn: $includeTranscripts).font(.system(size: 20))
                     Text("執行紀錄裡有長輩說的話被辨識出的文字，附上才能判斷辨識或校正的問題。關掉的話只送出其他紀錄。")
                         .font(.system(size: 16)).foregroundStyle(.secondary)
+                    if !recordings.isEmpty {
+                        Toggle("附上最近的錄音（\(recordings.count) 段）", isOn: $includeAudio).font(.system(size: 20))
+                        Text("最近 24 小時內最多 5 段對話錄音，開發團隊可以用同一段聲音重新辨識，找出問題。長輩的聲音會上傳到開發團隊的私人空間保存。")
+                            .font(.system(size: 16)).foregroundStyle(.secondary)
+                    }
                 }
                 Section {
                     LabeledContent("App 版本", value: "\(preview.appVersion)（\(preview.appBuild)）" + (preview.appCommit.map { "・\($0)" } ?? ""))
@@ -69,7 +77,7 @@ struct ErrorReportView: View {
                 } header: {
                     Text("會送出的內容").font(.system(size: 18))
                 } footer: {
-                    Text("只傳給開發團隊，不會傳送任何 API Key、Token 或錄音檔。").font(.system(size: 16))
+                    Text("只傳給開發團隊，不會傳送任何 API Key 或 Token。").font(.system(size: 16))
                 }
                 if pending > 0 {
                     Section {
@@ -101,6 +109,7 @@ struct ErrorReportView: View {
         .interactiveDismissDisabled(sending)
         .onAppear { entries = AppLog.shared.entries }
         .task {
+            recordings = await RecentRecordings.shared.files()
             pending = await service.pendingCount()
             if pending > 0 { await resend(quietly: true) }
         }
@@ -109,9 +118,15 @@ struct ErrorReportView: View {
     private func send() async {
         sending = true
         defer { sending = false }
-        switch await service.submit(preview) {
+        let report = preview
+        switch await service.submit(report) {
         case .sent(let issue):
-            result = ResultMessage(title: "已送出", message: "謝謝！回報編號 #\(issue)，告訴開發團隊這個編號就能找到。", closes: true)
+            var message = "謝謝！回報編號 #\(issue)，告訴開發團隊這個編號就能找到。"
+            if includeAudio && !recordings.isEmpty {
+                let sent = await service.uploadAudio(reportId: report.reportId, files: recordings)
+                message += "\n錄音 \(sent)/\(recordings.count) 段已附上。"
+            }
+            result = ResultMessage(title: "已送出", message: message, closes: true)
         case .saved(let error):
             result = ResultMessage(title: "已先保存", message: error.message, closes: true)
         case .failed(let error):

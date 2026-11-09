@@ -1,6 +1,7 @@
 // Receives problem reports from the ReminiCare iPad app and files each one as
 // an Issue in a private GitHub repo. The app holds no GitHub credentials: the
-// token lives only in this Worker's secrets and can reach one repo's Issues.
+// token lives only in this Worker's secrets and can reach one repo's Issues
+// and Contents (recordings are committed under audio/).
 //
 // Everything in a report is untrusted customer input. It is shown inside code
 // fences and never interpreted.
@@ -19,6 +20,9 @@ export const MAX_DESCRIPTION = 2_000;
 export const MAX_LOG = 400_000;
 export const MAX_SETTINGS = 60;
 export const COMMENT_CHUNK = 60_000;
+/** A 180-second 16 kHz mono 16-bit WAV is about 5.8 MB. */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+export const MAX_AUDIO_FILES = 5;
 
 export interface Report {
   reportId: string;
@@ -31,6 +35,8 @@ export interface Report {
   osVersion: string;
   description: string;
   includesTranscripts: boolean;
+  /** Recordings that will follow on the audio route; missing from older builds. */
+  audioCount?: number;
   settings: Record<string, string>;
   log: string;
 }
@@ -62,6 +68,9 @@ export function parseReport(raw: unknown): Report | Failure {
   if (typeof r.description !== "string" || typeof r.log !== "string") return invalid;
   if (r.description.length > MAX_DESCRIPTION || r.log.length > MAX_LOG) return { status: 413, error: "tooLarge" };
   if (typeof r.includesTranscripts !== "boolean") return invalid;
+  if (r.audioCount !== undefined && (!Number.isInteger(r.audioCount) || (r.audioCount as number) < 0 || (r.audioCount as number) > MAX_AUDIO_FILES)) {
+    return invalid;
+  }
   if (typeof r.settings !== "object" || r.settings === null || Array.isArray(r.settings)) return invalid;
   const settings = Object.entries(r.settings as Record<string, unknown>);
   if (settings.length > MAX_SETTINGS) return invalid;
@@ -95,6 +104,7 @@ export function issueBody(report: Report, logChunks: number): string {
     ["Commit", report.appCommit ?? "（未標記）"],
     ["裝置", `${report.deviceModel} · ${report.osVersion}`],
     ["附語音辨識文字", report.includesTranscripts ? "是" : "否"],
+    ["附錄音", report.audioCount ? `${report.audioCount} 段（見下方留言）` : "否"],
     ["執行紀錄", logChunks === 0 ? "無" : `見下方 ${logChunks} 則留言`],
   ];
   const settings = Object.entries(report.settings)
@@ -130,9 +140,9 @@ export function logChunks(log: string, size = COMMENT_CHUNK): string[] {
   return chunks;
 }
 
-async function github(env: Env, path: string, body: unknown): Promise<Response> {
+async function github(env: Env, path: string, body: unknown, method = "POST"): Promise<Response> {
   return fetch(`https://api.github.com/repos/${env.REPORT_REPO}${path}`, {
-    method: "POST",
+    method,
     headers: {
       authorization: `Bearer ${env.GITHUB_TOKEN}`,
       accept: "application/vnd.github+json",
@@ -144,8 +154,62 @@ async function github(env: Env, path: string, body: unknown): Promise<Response> 
   });
 }
 
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+const isWav = (bytes: Uint8Array): boolean =>
+  bytes.length > 44 &&
+  new TextDecoder().decode(bytes.subarray(0, 4)) === "RIFF" &&
+  new TextDecoder().decode(bytes.subarray(8, 12)) === "WAVE";
+
+/**
+ * One recording for a report already filed. The reportId is a random UUID only
+ * the reporting app knows, so it is the credential: it must map to an issue in
+ * REPORT_IDS. Committed to audio/<reportId>/<index>.wav in the reports repo.
+ */
+async function handleAudio(request: Request, env: Env, reportId: string, index: number): Promise<Response> {
+  if (request.method !== "POST") return json(405, { error: "method" });
+  if (!env.REPORT_IDS) return json(503, { error: "audioUnavailable" });
+  if (index >= MAX_AUDIO_FILES) return json(400, { error: "invalid" });
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > MAX_AUDIO_BYTES) return json(413, { error: "tooLarge" });
+  const issue = await env.REPORT_IDS.get(reportId);
+  if (!issue) return json(404, { error: "unknownReport" });
+
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.length > MAX_AUDIO_BYTES) return json(413, { error: "tooLarge" });
+  if (!isWav(bytes)) return json(400, { error: "invalid" });
+
+  const path = `audio/${reportId}/${index}.wav`;
+  const stored = await github(env, `/contents/${path}`, {
+    message: `Audio ${index + 1} for report #${issue}`,
+    content: base64(bytes),
+  }, "PUT");
+  // 422: already stored by an earlier attempt of the same upload.
+  if (stored.status === 422) return json(200, { issue: Number(issue), duplicate: true });
+  if (!stored.ok) {
+    console.log(`github audio store failed: ${stored.status}`);
+    return json(502, { error: "upstream" });
+  }
+  const seconds = Math.round((bytes.length - 44) / 32_000);
+  const link = `https://github.com/${env.REPORT_REPO}/blob/HEAD/${path}`;
+  const comment = await github(env, `/issues/${issue}/comments`, {
+    body: `### 錄音 ${index + 1}（約 ${seconds} 秒，未經驗證的資料）
+[${path}](${link})`,
+  });
+  if (!comment.ok) console.log(`github audio comment failed: ${comment.status}`);
+  return json(201, { issue: Number(issue) });
+}
+
 export async function handle(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const audio = url.pathname.match(/^\/v1\/reports\/([0-9A-Fa-f-]{36})\/audio\/(\d)$/);
+  if (audio) return handleAudio(request, env, audio[1], Number(audio[2]));
   if (url.pathname !== "/v1/reports") return json(404, { error: "notFound" });
   if (request.method !== "POST") return json(405, { error: "method" });
 

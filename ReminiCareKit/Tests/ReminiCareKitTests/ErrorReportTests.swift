@@ -160,3 +160,58 @@ private func sampleEntries() -> [AppLogEntry] {
         #expect(await service.pendingCount() == 0)
     }
 }
+
+@Suite struct ReportAudioTests {
+    func wav(in directory: URL, _ name: String) throws -> URL {
+        let file = directory.appending(path: name)
+        try Data("RIFF....WAVEfmt ".utf8).write(to: file)
+        return file
+    }
+
+    @Test func keepsTheNewestFiveForADay() async throws {
+        let clock = LockedValue(Date(timeIntervalSince1970: 1_800_000_000))
+        let store = RecentRecordings(directory: try temporaryDirectory().appending(path: "recent"), now: { clock.current })
+        let source = try temporaryDirectory()
+        for index in 0..<7 {
+            clock.withValue { $0 += 60 }
+            let file = try wav(in: source, "\(index).wav")
+            await store.keep(file)
+            #expect(!FileManager.default.fileExists(atPath: file.path))
+        }
+        #expect(await store.files().count == RecentRecordings.limit)
+        clock.withValue { $0 += RecentRecordings.maxAge + 120 }
+        #expect(await store.files().isEmpty)
+    }
+
+    @Test func uploadsEachRecordingAfterTheReport() async throws {
+        let paths = LockedValue<[String]>([])
+        let http = FakeHTTP { request in
+            paths.withValue { $0.append(request.url!.path) }
+            return request.url!.path.hasSuffix("/1") ? (502, "{}") : (201, #"{"issue":3}"#)
+        }
+        let service = ErrorReportService(
+            sender: ErrorReportSender(baseURL: "https://reports.example", client: http),
+            outbox: ErrorReportOutbox(directory: try temporaryDirectory())
+        )
+        let directory = try temporaryDirectory()
+        let files = [try wav(in: directory, "a.wav"), try wav(in: directory, "b.wav"), try wav(in: directory, "c.wav")]
+        let id = "8F14E45F-CEEA-467A-9575-5C3B6F2F1A00"
+        // A failed upload is skipped; the others still go.
+        #expect(await service.uploadAudio(reportId: id, files: files) == 2)
+        #expect(paths.current == (0..<3).map { "/v1/reports/\(id)/audio/\($0)" })
+    }
+
+    @Test func olderSavedReportsStillDecode() throws {
+        let report = ErrorReportBuilder.make(
+            description: "x", includeTranscripts: true, entries: [], config: try configWithSecrets(), environment: environment
+        )
+        let encoded = try JSONEncoder().encode(report)
+        let parsed = try JSONSerialization.jsonObject(with: encoded)
+        var object = try #require(parsed as? [String: Any])
+        object.removeValue(forKey: "audioCount")
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(ErrorReport.self, from: data)
+        #expect(decoded.audioCount == nil)
+        #expect(report.audioCount == 0)
+    }
+}

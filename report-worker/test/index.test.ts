@@ -127,3 +127,68 @@ describe("handle", () => {
     expect(await response.text()).toBe('{"error":"upstream"}');
   });
 });
+
+describe("audio", () => {
+  const id = report.reportId;
+  function wav(bytes = 64): Uint8Array {
+    const data = new Uint8Array(bytes);
+    data.set(new TextEncoder().encode("RIFF"), 0);
+    data.set(new TextEncoder().encode("WAVE"), 8);
+    return data;
+  }
+  function upload(body: Uint8Array | string, index = 0, headers: Record<string, string> = {}): Request {
+    return new Request(`https://reports.example/v1/reports/${id}/audio/${index}`, {
+      method: "POST",
+      headers: { "content-type": "audio/wav", ...headers },
+      body,
+    });
+  }
+  function kv(entries: Record<string, string> = { [id]: "12" }): KVNamespace {
+    return { get: async (key: string) => entries[key] ?? null, put: async () => {} } as unknown as KVNamespace;
+  }
+
+  it("needs the report-id store and a known report", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    expect((await handle(upload(wav()), env())).status).toBe(503);
+    expect((await handle(upload(wav()), env({ REPORT_IDS: kv({}) }))).status).toBe(404);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-WAV, oversized and out-of-range uploads", async () => {
+    const e = env({ REPORT_IDS: kv() });
+    expect((await handle(upload("not a wav file, definitely not one at all, no RIFF here"), e)).status).toBe(400);
+    expect((await handle(upload(wav(), 5), e)).status).toBe(400);
+    expect((await handle(upload(wav(), 0, { "content-length": String(9 * 1024 * 1024) }), e)).status).toBe(413);
+    const get = new Request(`https://reports.example/v1/reports/${id}/audio/0`);
+    expect((await handle(get, e)).status).toBe(405);
+  });
+
+  it("commits the recording to the repo and links it on the issue", async () => {
+    const calls: { url: string; method?: string; body: any }[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      calls.push({ url: String(input), method: init?.method, body: JSON.parse(String(init?.body)) });
+      return new Response("{}", { status: 201 });
+    });
+    const audio = wav();
+    const response = await handle(upload(audio, 1), env({ REPORT_IDS: kv() }));
+    expect(response.status).toBe(201);
+    expect(calls[0].method).toBe("PUT");
+    expect(calls[0].url).toBe(`https://api.github.com/repos/owner/reports/contents/audio/${id}/1.wav`);
+    expect(calls[0].body.content).toBe(Buffer.from(audio).toString("base64"));
+    expect(calls[1].url).toBe("https://api.github.com/repos/owner/reports/issues/12/comments");
+    expect(calls[1].body.body).toContain(`https://github.com/owner/reports/blob/HEAD/audio/${id}/1.wav`);
+  });
+
+  it("treats an already stored file as done", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 422 }));
+    const response = await handle(upload(wav()), env({ REPORT_IDS: kv() }));
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts and shows the audio count on the report", () => {
+    expect(parseReport({ ...report, audioCount: 3 })).toMatchObject({ audioCount: 3 });
+    expect(parseReport({ ...report, audioCount: 9 })).toEqual({ status: 400, error: "invalid" });
+    expect(issueBody({ ...report, audioCount: 2 }, 1)).toContain("2 段");
+  });
+});

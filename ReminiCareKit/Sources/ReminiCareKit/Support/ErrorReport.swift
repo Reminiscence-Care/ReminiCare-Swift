@@ -1,7 +1,8 @@
 import Foundation
 
 /// One problem report: what the user said happened, the App Log and a
-/// settings summary. Never holds an API key, token or audio.
+/// settings summary. Never holds an API key or token; recordings, when the
+/// user leaves them on, are uploaded separately after the issue exists.
 public struct ErrorReport: Codable, Sendable, Equatable, Identifiable {
     public var reportId: String
     public var createdAt: String
@@ -13,6 +14,8 @@ public struct ErrorReport: Codable, Sendable, Equatable, Identifiable {
     public var osVersion: String
     public var description: String
     public var includesTranscripts: Bool
+    /// How many recordings will follow; nil in reports saved by older builds.
+    public var audioCount: Int?
     public var settings: [String: String]
     public var log: String
     public var id: String { reportId }
@@ -66,7 +69,7 @@ public enum ErrorReportBuilder {
 
     /// `entries` is the log as it was when the report screen opened.
     public static func make(
-        description: String, includeTranscripts: Bool, entries: [AppLogEntry], config: ConfigStore,
+        description: String, includeTranscripts: Bool, audioCount: Int = 0, entries: [AppLogEntry], config: ConfigStore,
         environment: ReportEnvironment = .current, id: UUID = UUID(), now: Date = Date()
     ) -> ErrorReport {
         var log = entries.map { $0.reportLine(includeTranscript: includeTranscripts) }.joined(separator: "\n")
@@ -85,6 +88,7 @@ public enum ErrorReportBuilder {
             osVersion: environment.osVersion,
             description: String(description.trimmingCharacters(in: .whitespacesAndNewlines).prefix(maxDescription)),
             includesTranscripts: includeTranscripts,
+            audioCount: audioCount,
             settings: config.diagnosticSummary(),
             log: log
         )
@@ -154,10 +158,12 @@ public struct ErrorReportError: Error, Sendable, Equatable {
 public struct ErrorReportSender: Sendable {
     public let baseURL: String
     public let transport: HTTPTransport
+    let audioTransport: HTTPTransport
 
     public init(baseURL: String, client: HTTPSending = URLSession.shared) {
         self.baseURL = baseURL
         transport = HTTPTransport(client: client, timeout: .seconds(30), area: .report)
+        audioTransport = HTTPTransport(client: client, timeout: .seconds(90), area: .report)
     }
 
     public func send(_ report: ErrorReport) async throws -> ErrorReportReceipt {
@@ -181,6 +187,33 @@ public struct ErrorReportSender: Sendable {
             let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             guard let issue = body?["issue"] as? Int else { throw ErrorReportError(kind: .server) }
             return ErrorReportReceipt(issue: issue)
+        case 429: throw ErrorReportError(kind: .rateLimited)
+        case 413: throw ErrorReportError(kind: .tooLarge)
+        case 400, 404, 405: throw ErrorReportError(kind: .rejected)
+        default: throw ErrorReportError(kind: .server)
+        }
+    }
+
+    /// Uploads one recording for a report already filed (`POST <base>/v1/reports/<id>/audio/<index>`).
+    public func sendAudio(reportId: String, index: Int, file: URL) async throws {
+        let base = trimmedBase(baseURL)
+        guard let url = URL(string: base + "/v1/reports/\(reportId)/audio/\(index)"), url.scheme == "https" else {
+            throw ErrorReportError(kind: .notConfigured)
+        }
+        let body: Data
+        do { body = try Data(contentsOf: file) } catch { throw ErrorReportError(kind: .rejected) }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        let response: HTTPURLResponse
+        do {
+            (_, response) = try await audioTransport.send(request)
+        } catch {
+            throw ErrorReportError(kind: .network)
+        }
+        switch response.statusCode {
+        case 200, 201: return
         case 429: throw ErrorReportError(kind: .rateLimited)
         case 413: throw ErrorReportError(kind: .tooLarge)
         case 400, 404, 405: throw ErrorReportError(kind: .rejected)
@@ -277,4 +310,21 @@ public struct ErrorReportService: Sendable {
     }
 
     public func pendingCount() async -> Int { await outbox.pending().count }
+
+    /// Uploads recordings for a report that was just filed; returns how many
+    /// arrived. A failed upload never undoes the report itself.
+    /// shortcut: reports kept in the outbox go without audio; store the files with them if offline reports need it.
+    public func uploadAudio(reportId: String, files: [URL]) async -> Int {
+        var sent = 0
+        for (index, file) in files.enumerated() {
+            do {
+                try await sender.sendAudio(reportId: reportId, index: index, file: file)
+                sent += 1
+                AppLog.shared.record(.report, .completed, detail: "reportAudio")
+            } catch {
+                AppLog.shared.record(.report, .failed, detail: "report_audio_failed")
+            }
+        }
+        return sent
+    }
 }

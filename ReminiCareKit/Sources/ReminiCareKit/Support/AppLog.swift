@@ -244,6 +244,9 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "transcriptConfirmed": "已確認辨識文字",
         "transcriptEdited": "已手動修改辨識文字",
         "transcriptRerecord": "辨識文字不對，重新錄音",
+        "typedAnswer": "改用打字輸入",
+        "report_audio_failed": "回報的錄音上傳失敗",
+        "reportAudio": "回報的錄音",
         // 錯誤回報
         "errorReport": "送出錯誤回報",
         "report_notConfigured": "錯誤回報：尚未設定回報網址",
