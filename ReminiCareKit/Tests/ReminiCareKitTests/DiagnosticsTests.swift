@@ -362,10 +362,11 @@ final class FakeYatingChannel: YatingChannel, @unchecked Sendable {
         #expect(await check(.speechRecognition, worker) { _ in (502, #"{"error":"upstream_error"}"#) }.status == .serverError)
         #expect(await check(.speechRecognition, worker.merging([ConfigKey.speechWorkerToken: ""]) { $1 }) { _ in (200, "{}") }.status == .notConfigured)
         let audio = Data(count: 320).base64EncodedString()
-        #expect(await check(.speechSynthesis, worker) { request in
+        let speech = await check(.speechSynthesis, worker) { request in
             #expect(request.url?.path == "/v1/speeches")
             return (200, #"{"audioContent":"\#(audio)"}"#)
-        }.status == .ok)
+        }
+        #expect(speech.status == .ok)
     }
 
     @Test func historyKeepsLatestPerProvider() {
