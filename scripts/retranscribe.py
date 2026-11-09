@@ -37,7 +37,9 @@ def main() -> None:
     print(f"錄音 {len(body) / 32000:.1f} 秒，送出辨識…", file=sys.stderr)
     request = urllib.request.Request(
         args.url.rstrip("/") + "/v1/transcribe", data=body, method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/octet-stream"},
+        # Cloudflare rejects urllib's default User-Agent (error 1010).
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/octet-stream",
+                 "User-Agent": "reminicare-retranscribe/1.0"},
     )
     try:
         with urllib.request.urlopen(request, timeout=len(body) / 32000 + 60) as response:
