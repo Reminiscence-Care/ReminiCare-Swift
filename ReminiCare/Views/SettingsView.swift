@@ -42,7 +42,7 @@ struct SettingsView: View {
         case "nvidia": "https://integrate.api.nvidia.com/v1"
         case "openai": "https://api.openai.com/v1"
         case "gemini": "https://generativelanguage.googleapis.com/v1beta/openai"
-        case "groq": "https://api.groq.com/openai/v1  •  免費額度，Key 在 console.groq.com/keys"
+        case "groq": "https://api.groq.com/openai/v1"
         default: "自訂 OpenAI-compatible 端點與模型"
         }
     }
@@ -64,7 +64,7 @@ struct SettingsView: View {
                         Text("NVIDIA").tag("nvidia")
                         Text("OpenAI").tag("openai")
                         Text("Google Gemini").tag("gemini")
-                        Text("Groq（免費，建議）").tag("groq")
+                        Text("Groq").tag("groq")
                         Text("Custom OpenAI-compatible").tag("custom")
                     }
                     Text("LLM：\(llmInfo)").font(.footnote).foregroundStyle(.secondary)
