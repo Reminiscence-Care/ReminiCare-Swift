@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reminicare-report-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Secrets (wrangler secret put): GITHUB_TOKEN, REPORT_REPO
+  "ratelimits": [
+    {
+      "name": "REPORT_RATE_LIMITER",
+      "namespace_id": "2041",
+      "simple": { "limit": 3, "period": 60 }
+    }
+  ],
+  // Optional duplicate protection. Create with
+  //   pnpm exec wrangler kv namespace create REPORT_IDS
+  // then uncomment and paste the id.
+  // "kv_namespaces": [{ "binding": "REPORT_IDS", "id": "<id>" }],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

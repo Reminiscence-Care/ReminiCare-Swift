@@ -33,6 +33,7 @@ struct SettingsView: View {
         if llm == "custom" { keys.append("CUSTOM_LLM_BASE_URL") }
         if image == "custom" { keys += ["CUSTOM_IMAGE_BASE_URL", "CUSTOM_IMAGE_MODEL"] }
         if image == "cloudflare" { keys.append("CLOUDFLARE_IMAGE_WORKER_URL") }
+        keys.append(ConfigKey.errorReportURL)
         return keys
     }
 
@@ -41,6 +42,7 @@ struct SettingsView: View {
         case "nvidia": "https://integrate.api.nvidia.com/v1"
         case "openai": "https://api.openai.com/v1"
         case "gemini": "https://generativelanguage.googleapis.com/v1beta/openai"
+        case "groq": "https://api.groq.com/openai/v1"
         default: "自訂 OpenAI-compatible 端點與模型"
         }
     }
@@ -62,6 +64,7 @@ struct SettingsView: View {
                         Text("NVIDIA").tag("nvidia")
                         Text("OpenAI").tag("openai")
                         Text("Google Gemini").tag("gemini")
+                        Text("Groq").tag("groq")
                         Text("Custom OpenAI-compatible").tag("custom")
                     }
                     Text("LLM：\(llmInfo)").font(.footnote).foregroundStyle(.secondary)
@@ -139,6 +142,11 @@ struct SettingsView: View {
                         RecordingTestView()
                     } label: {
                         Label("錄音測試", systemImage: "waveform.badge.mic")
+                    }
+                    NavigationLink {
+                        NetworkCheckView()
+                    } label: {
+                        Label("網路檢測", systemImage: "network")
                     }
                 }
             }

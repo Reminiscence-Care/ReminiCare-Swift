@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Git commit of the build, shown in problem reports. Set by build-ipa.yml;
+	     xtool builds stamp it in scripts/xtool-wsl.sh. Empty for local Xcode builds. -->
+	<key>ReminiCareCommit</key>
+	<string>$(REMINICARE_COMMIT)</string>
 	<!-- NCKU speech services are reached over plain HTTP by IP address. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>

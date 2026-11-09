@@ -209,6 +209,36 @@ final class FakeYatingChannel: YatingChannel, @unchecked Sendable {
         #expect(AppLog.shared.entries.contains { $0.detail == "yatingEof" && $0.complete == 0 && $0.bytes == 16_000 })
     }
 
+    @Test func waitCoversStreamingLongAnswers() {
+        let stt = YatingSpeechRecognizer(apiKey: { "key" })
+        // 60 s of 16 kHz mono 16-bit audio streams in real time.
+        #expect(stt.streamingTime(bytes: 60 * 32_000) == .seconds(60))
+        #expect(stt.streamingTime(bytes: 1) == .microseconds(62_500))
+        #expect(stt.streamingTime(bytes: 0) == .zero)
+    }
+
+    @Test func groqIsAFreeLlmChoice() throws {
+        #expect(ConfigStore.llmKey("groq") == "GROQ_API_KEY")
+        #expect(ConfigStore.llmModelKey("groq") == "GROQ_LLM_MODEL")
+        #expect(ConfigStore.secretKeys.contains("GROQ_API_KEY"))
+        let preset = try #require(ProviderRegistry.llmPresets["groq"])
+        #expect(preset.baseURL == "https://api.groq.com/openai/v1")
+        #expect(preset.model == "qwen/qwen3.8-27b")
+    }
+
+    @Test func groqQwenTurnsOffThinking() async throws {
+        let body = LockedValue<[String: Any]>([:])
+        let http = FakeHTTP { request in
+            let json = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any] ?? [:]
+            body.withValue { $0 = json }
+            return (200, #"{"choices":[{"message":{"content":"OK"}}]}"#)
+        }
+        let client = OpenAICompatibleLlmClient(config: ProviderRegistry.llmPresets["groq"]!, apiKey: "gsk", client: http)
+        #expect(try await client.complete([LlmMessage("user", "hi")]) == "OK")
+        #expect(body.current["reasoning_effort"] as? String == "none")
+        #expect(body.current["model"] as? String == "qwen/qwen3.8-27b")
+    }
+
     @Test func countsSentences() async throws {
         let stt = recognizer(token: { _ in (201, #"{"success":true,"auth_token":"t"}"#) }, afterEOF: [
             #"{"pipe":{"asr_sentence":"我姓王","asr_final":true}}"#,

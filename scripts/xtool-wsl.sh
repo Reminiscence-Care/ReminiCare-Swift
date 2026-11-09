@@ -43,7 +43,20 @@ case "$work" in
 esac
 mkdir -p "$work"
 find "$work" -mindepth 1 -maxdepth 1 ! -name .build -exec rm -rf {} +   # keep the build cache only
-(cd "$repo" && tar --exclude=./.git --exclude=./xtool --exclude=./build --exclude='*/.build' --exclude=./.build -cf - .) \
+(cd "$repo" && tar --exclude=./.git --exclude=./xtool --exclude=./build --exclude='*/.build' --exclude=./.build \
+    --exclude=./report-worker -cf - .) \
     | (cd "$work" && tar -xf -)
+
+# 4. Stamp the commit into the app so problem reports say which code is running.
+commit="$(git -c safe.directory='*' -C "$repo" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+# The checkout belongs to Windows git (core.autocrlf=true, CRLF files), and on
+# /mnt/d every file looks executable; match both or every file counts as changed.
+if [ "$commit" != unknown ] && ! git -c safe.directory='*' -c core.filemode=false -c core.autocrlf=true \
+        -C "$repo" diff --quiet HEAD -- 2>/dev/null; then
+    commit="$commit-dirty"
+fi
+sed -i "s|<key>CFBundleDisplayName</key>|<key>ReminiCareCommit</key>\n\t<string>$commit</string>\n\t<key>CFBundleDisplayName</key>|" \
+    "$work/Config/xtool-Info.plist"
+echo "Commit stamped into the app: $commit"
 cd "$work"
 exec xtool dev "$@"

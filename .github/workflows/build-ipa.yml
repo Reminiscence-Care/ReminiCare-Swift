@@ -31,6 +31,7 @@ jobs:
             -derivedDataPath build/DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             MARKETING_VERSION="${GITHUB_REF_NAME#v}" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            REMINICARE_COMMIT="${GITHUB_SHA::7}" \
             build
 
       - name: Package .ipa

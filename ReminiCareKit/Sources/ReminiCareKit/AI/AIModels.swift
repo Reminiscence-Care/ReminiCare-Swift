@@ -68,6 +68,9 @@ public enum ProviderRegistry {
         "nvidia": LlmProviderConfig(id: "nvidia", displayName: "NVIDIA", baseURL: "https://integrate.api.nvidia.com/v1", model: "deepseek-ai/deepseek-v4.1-flash", apiKeyReference: "NVIDIA_API_KEY"),
         "openai": LlmProviderConfig(id: "openai", displayName: "OpenAI", baseURL: "https://api.openai.com/v1", model: "gpt-4o-mini", apiKeyReference: "OPENAI_API_KEY"),
         "gemini": LlmProviderConfig(id: "gemini", displayName: "Google Gemini", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash", apiKeyReference: "GEMINI_API_KEY"),
+        // 2026-11-09: free tier; best of 7 free models on made-up misheard
+        // answers (6/6, about 0.3 s each).
+        "groq": LlmProviderConfig(id: "groq", displayName: "Groq", baseURL: "https://api.groq.com/openai/v1", model: "qwen/qwen3.8-27b", apiKeyReference: "GROQ_API_KEY"),
     ]
 
     public static let imagePresets: [String: ImageProviderConfig] = [

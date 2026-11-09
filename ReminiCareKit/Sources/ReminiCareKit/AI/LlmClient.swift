@@ -97,8 +97,10 @@ public struct OpenAICompatibleLlmClient: LlmClient {
     static let quotaPattern = "insufficient_quota|quota|billing|balance|credit"
 
     private func providerOptions() -> [String: Any] {
-        guard config.id == "nvidia" else { return [:] }
         let model = config.model.lowercased()
+        // Qwen3 on Groq otherwise puts its <think> block into the answer text.
+        if config.id == "groq" && model.contains("qwen3") { return ["reasoning_effort": "none"] }
+        guard config.id == "nvidia" else { return [:] }
         if model.contains("glm-5.3") {
             return ["reasoning_effort": "low", "chat_template_kwargs": ["clear_thinking": true]]
         }
