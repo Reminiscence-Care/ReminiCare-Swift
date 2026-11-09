@@ -23,10 +23,18 @@ App 內「Log → 回報問題」送出的回報，會變成私人 repo 的一�
    - 有 Commit 時，以它為準對照程式碼：`git show --stat <commit>`、`git log --oneline <commit>..HEAD` 看之後改過什麼。結尾是 `-dirty` 代表建置時有未提交的修改，程式可能和該 commit 不完全一樣。
    - 沒有 Commit（舊版或本機 Xcode 建置）時，xtool 裝的版本號一律是 2.0.0 (1)，不可靠；只有 `v*` tag 打包的 IPA 版本號才準，可用 `git log --oneline v<版本>..HEAD`。
 3. 依 `CLAUDE.md` 的「App Log」判讀表讀執行紀錄，找出第一個 `失敗`、`警告`、HTTP ≥ 400，以及前後的錄音、STT、LLM、生圖那幾行。
-4. 對照程式碼定位原因（`detail` 代碼可在 `AppLog.detailLabels` 反查）。
-5. 回報給使用者，分成：
+4. Issue 有「錄音 N」留言時，可以用同一段錄音重新辨識，分辨是錄音問題還是辨識服務的問題：
+   ```sh
+   gh api -H "Accept: application/vnd.github.raw" "repos/<REPORT_REPO>/contents/audio/<reportId>/<n>.wav" > "<scratchpad>/<n>.wav"
+   SPEECH_WORKER_TOKEN=... python scripts/retranscribe.py "<scratchpad>/<n>.wav"
+   ```
+   - 錄音要下載到 scratchpad，不要放進 repo。
+   - 重新辨識會花雅婷額度並把錄音送出，**每次都要先問使用者**；Token 請使用者自己在終端機設定，不要貼進對話。
+   - 第二次辨識有文字＝當時是網路或服務暫時性問題；仍是空字串＝看錄音那行的音量，或雅婷聽不出這段內容。
+5. 對照程式碼定位原因（`detail` 代碼可在 `AppLog.detailLabels` 反查）。
+6. 回報給使用者，分成：
    - **發生什麼**：一兩句白話。
    - **證據**：引用關鍵 Log 行（辨識文字只引用必要的部分）。
    - **原因**：程式或外部服務；不確定就說不確定，並寫需要什麼才能確認。
    - **建議**：要改的檔案，或要請使用者在設定頁做什麼。改程式前先徵得同意。
-6. 處理完提醒使用者：含個人資料的 Issue 在問題解決後應刪除（由使用者決定、自己刪）。
+7. 處理完提醒使用者：含個人資料的 Issue 和 `audio/` 下的錄音在問題解決後應刪除（由使用者決定、自己刪）。

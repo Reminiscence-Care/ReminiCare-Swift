@@ -248,4 +248,42 @@ private struct SlowLlm: LlmClient {
         let turn = try JSONDecoder().decode(ConversationTurn.self, from: Data(json.utf8))
         #expect(turn.rawText == nil)
     }
+
+    // MARK: Typed instead of spoken
+
+    @Test func typedAnswerMakesThePhotoWithoutCorrection() async throws {
+        let h = try make(transcripts: ["我叫王小明"], confirmation: true)
+        try await reachQuestion(h)
+        await h.session.submitTypedText("   ")
+        #expect(h.session.stage == .question)
+        await h.session.submitTypedText("  我以前在台南織布  ")
+        #expect(h.session.stage == .evaluation)
+        #expect(h.image.calls.current == 1)
+        #expect(h.correctionRequests.current.isEmpty, "打的字不校正")
+        #expect(h.session.turns.last?.text == "我以前在台南織布")
+        #expect(h.session.turns.last?.kind == .memory)
+        #expect(h.session.turns.last?.rawText == nil)
+    }
+
+    @Test func typedRevisionRevisesThePhoto() async throws {
+        let h = try make(transcripts: ["我叫王小明"], correction: false)
+        try await reachQuestion(h)
+        await h.session.submitTypedText("我沒有織過布")
+        h.session.chooseDislike()
+        await h.session.submitTypedText("布要紅色")
+        #expect(h.session.stage == .evaluation)
+        #expect(h.image.calls.current == 2)
+        #expect(h.session.turns.last?.kind == .correction)
+        #expect(h.session.turns.last?.text == "布要紅色")
+    }
+
+    @Test func typingIsIgnoredWhileRecording() async throws {
+        let h = try make(transcripts: ["我叫王小明", misheard], correction: false)
+        try await reachQuestion(h)
+        await h.session.startAnswerRecording()
+        #expect(h.session.isRecording)
+        await h.session.submitTypedText("我沒有織過布")
+        #expect(h.session.turns.isEmpty)
+        #expect(h.image.calls.current == 0)
+    }
 }

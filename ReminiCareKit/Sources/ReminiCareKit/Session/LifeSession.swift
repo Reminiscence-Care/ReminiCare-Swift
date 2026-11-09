@@ -537,6 +537,27 @@ public final class LifeSession {
         await proceed(with: text, raw: raw, revision: revision, session: current)
     }
 
+    /// Typed instead of spoken (fallback when recognition fails): used as is,
+    /// without AI correction or the confirmation screen.
+    public func submitTypedText(_ text: String) async {
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty, !busy, !closed, !isRecording, !isTranscribing,
+              [.question, .revisionRecording].contains(stage) else { return }
+        busy = true
+        let current = session
+        defer {
+            if isCurrent(current) {
+                busy = false
+                changed()
+            }
+        }
+        clearPendingAudio()
+        errorMessage = nil
+        AppLog.shared.record(.flow, .progress, operationId: current, detail: "typedAnswer")
+        AppLog.shared.recordTranscription(typed, operationId: current, corrected: true)
+        await proceed(with: typed, raw: typed, revision: stage == .revisionRecording, session: current)
+    }
+
     private func clearConfirmation() {
         heardTranscript = ""
         rawTranscript = ""
@@ -605,8 +626,10 @@ public final class LifeSession {
     private func clearPendingAudio() {
         transcription?.cancel()
         transcription = nil
-        for file in pendingAudio { try? FileManager.default.removeItem(at: file) }
+        // Kept for a while (not deleted) so a problem report can attach them.
+        let files = pendingAudio
         pendingAudio = []
+        if !files.isEmpty { Task { for file in files { await RecentRecordings.shared.keep(file) } } }
     }
 
     private func cleanupStaleRecordings() {

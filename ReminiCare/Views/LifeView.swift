@@ -307,6 +307,7 @@ private struct QuestionStage: View {
                 Text("錄音中 \(session.recordSeconds) 秒").font(.system(size: Theme.body(width))).foregroundStyle(Theme.muted)
             }
             RecordButton(session: session) { await session.startAnswerRecording() }.padding(.top, 16)
+            TypeInsteadButton(session: session, title: "打字回答")
             Button("不想繼續聊") { Task { await session.finishSession() } }
                 .font(.system(size: 22)).foregroundStyle(Theme.muted).padding(.top, 18)
         }
@@ -366,6 +367,7 @@ private struct RevisionStage: View {
                 Text("錄音中 \(session.recordSeconds) 秒").font(.system(size: Theme.body(width)))
             }
             RecordButton(session: session) { await session.startRevisionRecording() }.padding(.top, 16)
+            TypeInsteadButton(session: session, title: "打字描述要修改的地方")
         }
     }
 }
@@ -407,25 +409,62 @@ private struct TranscriptConfirmationStage: View {
             .padding(.top, 16)
         }
         .sheet(isPresented: $editing) {
-            NavigationStack {
-                TextEditor(text: $draft)
-                    .font(.system(size: 28))
-                    .padding(16)
-                    .navigationTitle("修改辨識文字")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("取消") { editing = false }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("完成") {
-                                editing = false
-                                let text = draft
-                                Task { await session.submitEditedTranscript(text) }
-                            }
-                            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
+            TextEntrySheet(title: "修改辨識文字", draft: $draft, isPresented: $editing) { text in
+                await session.submitEditedTranscript(text)
+            }
+        }
+    }
+}
+
+/// A large text editor in a sheet; "完成" hands over the text.
+private struct TextEntrySheet: View {
+    let title: String
+    @Binding var draft: String
+    @Binding var isPresented: Bool
+    let onDone: (String) async -> Void
+
+    var body: some View {
+        NavigationStack {
+            TextEditor(text: $draft)
+                .font(.system(size: 28))
+                .padding(16)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { isPresented = false }
                     }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") {
+                            isPresented = false
+                            let text = draft
+                            Task { await onDone(text) }
+                        }
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+        }
+    }
+}
+
+/// Fallback when speech recognition does not work: type the answer instead.
+private struct TypeInsteadButton: View {
+    let session: LifeSession
+    let title: String
+    @State private var typing = false
+    @State private var draft = ""
+
+    var body: some View {
+        Button(title, systemImage: "keyboard") {
+            draft = ""
+            typing = true
+        }
+        .font(.system(size: 22))
+        .padding(.top, 14)
+        .disabled(session.isRecording || session.isTranscribing || session.isCorrecting)
+        .sheet(isPresented: $typing) {
+            TextEntrySheet(title: title, draft: $draft, isPresented: $typing) { text in
+                await session.submitTypedText(text)
             }
         }
     }
