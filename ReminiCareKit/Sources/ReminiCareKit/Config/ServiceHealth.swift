@@ -75,7 +75,7 @@ public struct ServiceHealthChecker: Sendable {
     }
 
     private var factory: ServiceFactory { ServiceFactory(config: config) }
-    private var usesNcku: Bool { config.value(ConfigKey.speechProvider) == "ncku" }
+    private var speech: SpeechProvider { SpeechProvider(config.value(ConfigKey.speechProvider)) }
     private func key(_ reference: String) -> String { config.value(reference).trimmingCharacters(in: .whitespacesAndNewlines) }
 
     public func providerName(_ kind: ServiceKind) -> String {
@@ -84,7 +84,7 @@ public struct ServiceHealthChecker: Sendable {
             let settings = factory.llmConfig()
             return "\(settings.displayName) \(settings.model)"
         case .image: return factory.imageConfig().displayName
-        case .speechRecognition, .speechSynthesis: return usesNcku ? "成大 NCKU" : "雅婷"
+        case .speechRecognition, .speechSynthesis: return speech.label
         }
     }
 
@@ -106,8 +106,18 @@ public struct ServiceHealthChecker: Sendable {
         switch kind {
         case .llm: await checkLlm()
         case .image: await checkImage()
-        case .speechRecognition: usesNcku ? await checkNckuStt() : await checkYatingToken()
-        case .speechSynthesis: usesNcku ? await checkNckuTts() : await checkYatingTts()
+        case .speechRecognition:
+            switch speech {
+            case .ncku: await checkNckuStt()
+            case .yatingDirect: await checkYatingToken()
+            case .yating: await checkWorkerToken()
+            }
+        case .speechSynthesis:
+            switch speech {
+            case .ncku: await checkNckuTts()
+            case .yatingDirect: await checkYatingTts()
+            case .yating: await checkWorkerTts()
+            }
         }
     }
 
@@ -210,6 +220,30 @@ public struct ServiceHealthChecker: Sendable {
         return (Self.status(forDetail: outcome.detail ?? "server"), outcome.statusCode)
     }
 
+    /// The Worker fetches one Yating token (no audio): checks the app token
+    /// and the Worker's Yating key and quota in one free request.
+    private func checkWorkerToken() async -> (HealthStatus, Int?) {
+        let endpoint = config.speechWorker
+        guard !endpoint.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let request = endpoint.request("/v1/check", method: "GET") else { return (.notConfigured, nil) }
+        switch await send(request) {
+        case .failure(let status): return (status, nil)
+        case .success(let response) where response.code == 200: return (.ok, 200)
+        case .success(let response):
+            return (Self.status(forDetail: "worker_\(SpeechWorkerEndpoint.errorCode(response.body))"), response.code)
+        }
+    }
+
+    private func checkWorkerTts() async -> (HealthStatus, Int?) {
+        let endpoint = config.speechWorker
+        guard !endpoint.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return (.notConfigured, nil) }
+        var synthesizer = YatingWorkerSynthesizer(endpoint: { endpoint })
+        synthesizer.http = http
+        let outcome = await synthesizer.synthesizeReporting("測試", language: .mandarin)
+        if outcome.audio != nil { return (.ok, outcome.statusCode) }
+        return (Self.status(forDetail: outcome.detail ?? "server"), outcome.statusCode)
+    }
+
     private func checkNckuStt() async -> (HealthStatus, Int?) {
         let token = key("NCKU_STT_TOKEN")
         guard !token.isEmpty else { return (.notConfigured, nil) }
@@ -247,6 +281,11 @@ public struct ServiceHealthChecker: Sendable {
         case "rateLimit": .rateLimited
         case "timeout": .slow
         case "network", "cancelled": .unreachable
+        case "worker_unauthorized", "worker_upstream_auth": .invalidKey
+        case "worker_quota": .quotaExhausted
+        case "worker_rate_limited", "worker_upstream_rate_limit": .rateLimited
+        case "worker_upstream_timeout": .slow
+        case "worker_misconfigured", "configuration": .notConfigured
         default: .serverError
         }
     }

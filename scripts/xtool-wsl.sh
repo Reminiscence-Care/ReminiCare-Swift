@@ -44,7 +44,7 @@ esac
 mkdir -p "$work"
 find "$work" -mindepth 1 -maxdepth 1 ! -name .build -exec rm -rf {} +   # keep the build cache only
 (cd "$repo" && tar --exclude=./.git --exclude=./xtool --exclude=./build --exclude='*/.build' --exclude=./.build \
-    --exclude=./report-worker -cf - .) \
+    --exclude=./report-worker --exclude=./speech-worker -cf - .) \
     | (cd "$work" && tar -xf -)
 
 # 4. Stamp the commit into the app so problem reports say which code is running.

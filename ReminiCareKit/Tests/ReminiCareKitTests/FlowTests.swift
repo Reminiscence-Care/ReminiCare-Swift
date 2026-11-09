@@ -155,7 +155,9 @@ final class FakeRecorderPort: RecorderPort {
         await session.startIntroductionRecording()
         await voice.finishRecording()
         try await waitUntil { session.errorMessage != nil }
-        #expect(session.errorMessage == "沒有辨識到語音，請重新錄音。")
+        #expect(session.errorMessage == LifeSession.emptyTranscriptMessage)
         #expect(session.introductionState == .ready)
+        // The recording is kept so it can be sent again.
+        #expect(session.canRetryTranscription)
     }
 }

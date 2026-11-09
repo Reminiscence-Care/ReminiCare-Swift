@@ -299,7 +299,8 @@ final class FakeYatingChannel: YatingChannel, @unchecked Sendable {
         ConfigKey.llmProvider: "openai", "OPENAI_API_KEY": "k", "OPENAI_LLM_MODEL": "gpt-4o-mini",
         ConfigKey.imageProvider: "cloudflare", "CLOUDFLARE_IMAGE_APP_TOKEN": "t",
         "CLOUDFLARE_IMAGE_WORKER_URL": "https://worker.example",
-        ConfigKey.speechProvider: "yating", "YATING_API_KEY": "y",
+        ConfigKey.speechProvider: "yatingDirect", "YATING_API_KEY": "y",
+        ConfigKey.speechWorkerToken: "app", ConfigKey.speechWorkerURL: "https://speech.example",
     ]
 
     func check(_ kind: ServiceKind, _ values: [String: String] = [:], respond: @escaping @Sendable (URLRequest) -> (Int, String)) async -> HealthResult {
@@ -345,6 +346,26 @@ final class FakeYatingChannel: YatingChannel, @unchecked Sendable {
         let audio = Data(count: 320).base64EncodedString()
         #expect(await check(.speechSynthesis) { _ in (201, #"{"audioContent":"\#(audio)"}"#) }.status == .ok)
         #expect(await check(.speechSynthesis) { _ in (200, "{}") }.status == .serverError)
+    }
+
+    @Test func yatingThroughWorker() async {
+        let worker = [ConfigKey.speechProvider: "yating"]
+        let ok = await check(.speechRecognition, worker) { request in
+            #expect(request.url?.absoluteString == "https://speech.example/v1/check")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer app")
+            return (200, #"{"ok":true}"#)
+        }
+        #expect(ok.status == .ok)
+        #expect(ok.provider == "雅婷（經 ReminiCare Worker）")
+        #expect(await check(.speechRecognition, worker) { _ in (401, #"{"error":"unauthorized"}"#) }.status == .invalidKey)
+        #expect(await check(.speechRecognition, worker) { _ in (402, #"{"error":"quota"}"#) }.status == .quotaExhausted)
+        #expect(await check(.speechRecognition, worker) { _ in (502, #"{"error":"upstream_error"}"#) }.status == .serverError)
+        #expect(await check(.speechRecognition, worker.merging([ConfigKey.speechWorkerToken: ""]) { $1 }) { _ in (200, "{}") }.status == .notConfigured)
+        let audio = Data(count: 320).base64EncodedString()
+        #expect(await check(.speechSynthesis, worker) { request in
+            #expect(request.url?.path == "/v1/speeches")
+            return (200, #"{"audioContent":"\#(audio)"}"#)
+        }.status == .ok)
     }
 
     @Test func historyKeepsLatestPerProvider() {

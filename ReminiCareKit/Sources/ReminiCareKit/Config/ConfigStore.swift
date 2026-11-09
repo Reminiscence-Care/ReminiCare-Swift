@@ -33,6 +33,28 @@ public enum ConfigKey {
     public static let defaultErrorReportURL = "https://reminicare-report-api.hding49.workers.dev"
     public static let defaultNckuSttURL = "http://140.116.245.149:5002/proxy"
     public static let defaultNckuTtsHost = "140.116.245.146"
+    public static let speechWorkerURL = "SPEECH_WORKER_URL"
+    public static let speechWorkerToken = "SPEECH_WORKER_TOKEN"
+    public static let defaultSpeechWorkerURL = "https://reminicare-speech-api.hding49.workers.dev"
+}
+
+/// Where speech recognition and synthesis go.
+public enum SpeechProvider: String, Sendable, CaseIterable {
+    /// Yating through the ReminiCare speech Worker (default): plain HTTPS, key on the Worker.
+    case yating
+    /// Yating directly with this iPad's own key (needs WebSockets); for development.
+    case yatingDirect
+    case ncku
+
+    public init(_ raw: String) { self = SpeechProvider(rawValue: raw) ?? .yating }
+
+    public var label: String {
+        switch self {
+        case .yating: "雅婷（經 ReminiCare Worker）"
+        case .yatingDirect: "雅婷（直連，自備 Key）"
+        case .ncku: "成大 NCKU"
+        }
+    }
 }
 
 /// Settings snapshot plus persistence. Secrets live in the Keychain and never
@@ -43,7 +65,7 @@ public final class ConfigStore: @unchecked Sendable {
     public static let secretKeys: Set<String> = [
         "NVIDIA_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY",
         "CLOUDFLARE_IMAGE_APP_TOKEN", "CUSTOM_LLM_API_KEY", "CUSTOM_IMAGE_API_KEY",
-        "NCKU_TTS_TOKEN", "NCKU_STT_TOKEN", "YATING_API_KEY", "GROQ_API_KEY",
+        "NCKU_TTS_TOKEN", "NCKU_STT_TOKEN", "YATING_API_KEY", "GROQ_API_KEY", ConfigKey.speechWorkerToken,
     ]
 
     public static let fields: [ConfigField] = [
@@ -66,6 +88,8 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField("NCKU_TTS_TOKEN", "NCKU TTS Token", hint: "Token..."),
         ConfigField("NCKU_STT_TOKEN", "NCKU STT Token", hint: "Token..."),
         ConfigField("YATING_API_KEY", "Yating TTS/STT Token", hint: "Token..."),
+        ConfigField(ConfigKey.speechWorkerToken, "語音 Worker App Token", hint: "與 Worker APP_TOKEN 相同的值"),
+        ConfigField(ConfigKey.speechWorkerURL, "語音 Worker 網址", hint: "https://reminicare-speech-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultSpeechWorkerURL),
         ConfigField("CUSTOM_LLM_BASE_URL", "Custom LLM Base URL", hint: "https://example.com/v1", secure: false),
         ConfigField("CUSTOM_LLM_MODEL", "Custom LLM 模型", hint: "model-name", secure: false),
         ConfigField("CUSTOM_IMAGE_BASE_URL", "Custom Image Base URL", hint: "https://example.com/v1", secure: false),
@@ -126,7 +150,7 @@ public final class ConfigStore: @unchecked Sendable {
             snapshot[field.key] = value
         }
         snapshot[ConfigKey.llmProvider] = defaults.string(forKey: ConfigKey.llmProvider) ?? "nvidia"
-        snapshot[ConfigKey.speechProvider] = defaults.string(forKey: ConfigKey.speechProvider) ?? "yating"
+        snapshot[ConfigKey.speechProvider] = SpeechProvider(defaults.string(forKey: ConfigKey.speechProvider) ?? "").rawValue
         snapshot[ConfigKey.imageProvider] = defaults.string(forKey: ConfigKey.imageProvider) ?? "cloudflare"
         snapshot[ConfigKey.taiLoProvider] = TaiLoModelSettings.parseProvider(defaults.string(forKey: ConfigKey.taiLoProvider))
         snapshot[ConfigKey.taiwaneseFallback] = TaiwaneseTtsFallback.parse(defaults.string(forKey: ConfigKey.taiwaneseFallback)).rawValue
@@ -180,9 +204,20 @@ public final class ConfigStore: @unchecked Sendable {
     public var ttsCacheIdentity: String {
         let fallback = TaiwaneseTtsFallback.parse(value(ConfigKey.taiwaneseFallback)).rawValue
         let taiLo = TaiLoModelSettings.parseProvider(value(ConfigKey.taiLoProvider))
-        return "\(value(ConfigKey.speechProvider))|\(value("NCKU_TTS_HOST"))|\(value("NCKU_TTS_PORT"))|"
+        // Direct and Worker Yating use the same voices, so they share cached audio.
+        let speech = SpeechProvider(value(ConfigKey.speechProvider)) == .ncku ? "ncku" : "yating"
+        return "\(speech)|\(value("NCKU_TTS_HOST"))|\(value("NCKU_TTS_PORT"))|"
             + "tw:M04|zh:4793|yating:tw=tai_female_1,zh=zh_en_female_1|"
             + "tw-fallback:\(fallback)|tailo:\(taiLo)/\(value(ConfigKey.taiLoModel).trimmingCharacters(in: .whitespaces))"
+    }
+
+    /// The speech Worker's address and app token.
+    public var speechWorker: SpeechWorkerEndpoint {
+        let url = value(ConfigKey.speechWorkerURL)
+        return SpeechWorkerEndpoint(
+            baseURL: url.isEmpty ? ConfigKey.defaultSpeechWorkerURL : url,
+            token: value(ConfigKey.speechWorkerToken)
+        )
     }
 
     public var maxRecordSeconds: Int { Int(value(ConfigKey.maxRecord)) ?? 180 }
@@ -213,11 +248,12 @@ public final class ConfigStore: @unchecked Sendable {
         }
         let llm = read(ConfigKey.llmProvider).isEmpty ? "nvidia" : read(ConfigKey.llmProvider)
         let image = read(ConfigKey.imageProvider).isEmpty ? "cloudflare" : read(ConfigKey.imageProvider)
-        let speech = read(ConfigKey.speechProvider).isEmpty ? "yating" : read(ConfigKey.speechProvider)
+        let speech = SpeechProvider(read(ConfigKey.speechProvider))
         if read(Self.llmKey(llm)).isEmpty { return "目前語言模型的 API Key 不可空白" }
         if read(Self.imageKey(image)).isEmpty { return "目前生圖服務的 API Key 不可空白" }
         if read(Self.llmModelKey(llm)).isEmpty { return "目前語言模型名稱不可空白" }
-        if speech == "ncku" {
+        switch speech {
+        case .ncku:
             if read("NCKU_TTS_TOKEN").isEmpty || read("NCKU_STT_TOKEN").isEmpty {
                 return "NCKU 語音服務需要 TTS 與 STT Token"
             }
@@ -232,8 +268,13 @@ public final class ConfigStore: @unchecked Sendable {
             if read("NCKU_TTS_HOST").rangeOfCharacter(from: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "/"))) != nil {
                 return "成大 TTS 主機請填主機名稱或 IP"
             }
-        } else if read("YATING_API_KEY").isEmpty {
-            return "雅婷語音服務 Token 不可空白"
+        case .yatingDirect:
+            if read("YATING_API_KEY").isEmpty { return "雅婷語音服務 Token 不可空白" }
+        case .yating:
+            if read(ConfigKey.speechWorkerToken).isEmpty { return "語音 Worker App Token 不可空白" }
+            let raw = read(ConfigKey.speechWorkerURL).isEmpty ? ConfigKey.defaultSpeechWorkerURL : read(ConfigKey.speechWorkerURL)
+            let url = URL(string: raw)
+            if url?.scheme != "https" || (url?.host ?? "").isEmpty { return "語音 Worker 網址必須是有效的 HTTPS 網址" }
         }
         if llm == "custom", let error = Self.validateCustom(read("CUSTOM_LLM_BASE_URL"), read("CUSTOM_LLM_MODEL")) {
             return "自訂 LLM：\(error)"

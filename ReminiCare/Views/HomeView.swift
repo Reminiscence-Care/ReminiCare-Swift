@@ -7,6 +7,12 @@ struct HomeView: View {
     @State private var loadError: String?
     @State private var showSettings = false
     @State private var missingMessage: String?
+    @State private var checkingNetwork = false
+    @State private var networkWarning: String?
+    @State private var showNetworkCheck = false
+    @State private var update: UpdateInfo?
+    @Environment(\.openURL) private var openURL
+    private let updatePreferences = UpdatePreferences()
 
     private static let homeImage = BundledImage.home.flatMap { UIImage(contentsOfFile: $0.path) } ?? UIImage()
 
@@ -24,7 +30,10 @@ struct HomeView: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 20)
                 Spacer(minLength: 16)
-                PillButton(label: ready ? "開始回憶" : (loadError ?? "載入設定中…"), disabled: !ready && loadError == nil) {
+                PillButton(
+                    label: checkingNetwork ? "檢查網路中…" : (ready ? "開始回憶" : (loadError ?? "載入設定中…")),
+                    disabled: checkingNetwork || (!ready && loadError == nil)
+                ) {
                     if ready { start() } else { load() }
                 }
                 .padding(.bottom, 24)
@@ -52,7 +61,62 @@ struct HomeView: View {
         } message: {
             Text(missingMessage ?? "")
         }
+        .alert("網路可能有問題", isPresented: Binding(get: { networkWarning != nil }, set: { if !$0 { networkWarning = nil } })) {
+            Button("仍要開始") { path.append(.life) }
+            Button("網路檢測") { showNetworkCheck = true }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(networkWarning ?? "")
+        }
+        .alert(
+            "有新版本 \(update?.version ?? "")",
+            isPresented: Binding(get: { update != nil }, set: { if !$0 { update = nil } }),
+            presenting: update
+        ) { info in
+            Button("更新") { install(info) }
+            Button("略過這版") { updatePreferences.skip(info.version) }
+            Button("稍後", role: .cancel) {}
+        } message: { info in
+            Text(updateMessage(info))
+        }
+        .sheet(isPresented: $showNetworkCheck) {
+            NavigationStack {
+                NetworkCheckView()
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("關閉") { showNetworkCheck = false } } }
+            }
+        }
         .task { load() }
+        .task { await offerUpdate() }
+    }
+
+    /// On launch, at most once a day and only in release builds.
+    private func offerUpdate() async {
+        guard UpdateChecker.isReleaseBuild, updatePreferences.shouldCheck() else { return }
+        let result = await UpdateChecker().check()
+        if result != .failed { updatePreferences.markChecked() }
+        update = updatePreferences.launchOffer(result)
+    }
+
+    private func updateMessage(_ info: UpdateInfo) -> String {
+        let how = "按「更新」會開啟 AltStore 安裝新版，回憶與設定都會保留。"
+        let notes = info.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        return notes.isEmpty ? how : String(notes.prefix(300)) + "\n\n" + how
+    }
+
+    private func install(_ info: UpdateInfo) {
+        guard let altStore = info.altStoreURL else {
+            AppLog.shared.record(.update, .progress, detail: "updateOpenPage")
+            openURL(info.pageURL)
+            return
+        }
+        AppLog.shared.record(.update, .progress, detail: "updateOpenAltStore")
+        let openURL = openURL
+        let page = info.pageURL
+        openURL(altStore) { accepted in
+            guard !accepted else { return }
+            AppLog.shared.record(.update, .progress, detail: "updateOpenPage")
+            Task { @MainActor in openURL(page) }
+        }
     }
 
     private func load() {
@@ -75,8 +139,21 @@ struct HomeView: View {
         #endif
         if let message = ServiceFactory().missingConfiguration() {
             missingMessage = message
-        } else {
-            path.append(.life)
+            return
+        }
+        // A quick look at the network first: warn, never block.
+        checkingNetwork = true
+        Task {
+            let check = NetworkCheck.quick()
+            await check.run()
+            checkingNetwork = false
+            let failed = check.failedItems
+            if failed.isEmpty {
+                path.append(.life)
+            } else {
+                let names = failed.map(\.title).joined(separator: "、")
+                networkWarning = "目前連不到：\(names)。對話中可能無法辨識或產生圖片。建議改用手機熱點，或按「網路檢測」查看原因。"
+            }
         }
     }
 }

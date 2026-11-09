@@ -165,8 +165,14 @@ import Testing
         #expect(config.value(ConfigKey.speechProvider) == "yating")
         #expect(config.value("NCKU_STT_URL") == ConfigKey.defaultNckuSttURL)
         #expect(config.validate([:]) == "目前語言模型的 API Key 不可空白")
-        let valid = ["NVIDIA_API_KEY": "k", "CLOUDFLARE_IMAGE_APP_TOKEN": "t", "YATING_API_KEY": "y"]
+        let valid = ["NVIDIA_API_KEY": "k", "CLOUDFLARE_IMAGE_APP_TOKEN": "t", ConfigKey.speechWorkerToken: "w"]
         #expect(config.validate(valid) == nil)
+        #expect(config.value(ConfigKey.speechWorkerURL) == ConfigKey.defaultSpeechWorkerURL)
+        #expect(config.validate(valid.merging([ConfigKey.speechWorkerToken: ""]) { $1 }) == "語音 Worker App Token 不可空白")
+        #expect(config.validate(valid.merging([ConfigKey.speechWorkerURL: "http://x.example"]) { $1 }) == "語音 Worker 網址必須是有效的 HTTPS 網址")
+        // Direct Yating needs this iPad's own key instead.
+        #expect(config.validate(valid.merging([ConfigKey.speechProvider: "yatingDirect"]) { $1 }) == "雅婷語音服務 Token 不可空白")
+        #expect(config.validate(valid.merging([ConfigKey.speechProvider: "yatingDirect", "YATING_API_KEY": "y"]) { $1 }) == nil)
         #expect(config.validate(valid.merging([ConfigKey.introSilence: "0.5"]) { $1 }) != nil)
         #expect(config.validate(valid.merging([ConfigKey.speechProvider: "ncku"]) { $1 }) == "NCKU 語音服務需要 TTS 與 STT Token")
     }

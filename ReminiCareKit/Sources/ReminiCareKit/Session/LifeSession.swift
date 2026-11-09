@@ -102,6 +102,7 @@ public final class LifeSession {
 
     public var canEditImage: Bool { imageClient.config.supports(.imageEditing) }
     public var canRetryTranscription: Bool { !pendingAudio.isEmpty && !isTranscribing }
+    public static let emptyTranscriptMessage = "沒有辨識到語音。可以按「重試辨識」再送一次，或重新錄音。"
     public var canRetryLastStep: Bool {
         !busy && !lastText.isEmpty && errorMessage != nil && [.introduction, .question, .revisionRecording].contains(stage)
     }
@@ -413,15 +414,16 @@ public final class LifeSession {
         do {
             let text = try await transcribe(pendingAudio)
             guard isCurrent(current) else { return }
-            clearPendingAudio()
             hasInterruptedRecording = false
             audioWarning = nil
             if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Keep the recording: "重試辨識" can send it again without repeating the answer.
                 AppLog.shared.record(.stt, .warning, operationId: session, detail: "emptyTranscript")
-                errorMessage = "沒有辨識到語音，請重新錄音。"
+                errorMessage = Self.emptyTranscriptMessage
                 if stage == .introduction { introductionState = .ready }
                 return
             }
+            clearPendingAudio()
             lastText = text
             if stage == .introduction {
                 // 稱呼不自動改字：姓氏由 elderName 擷取，同音由人確認。

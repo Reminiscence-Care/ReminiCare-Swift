@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 public enum LogArea: String, Sendable, CaseIterable {
-    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache, report, network
+    case app, flow, recording, stt, tts, ai, llm, image, settings, history, cache, report, network, update
 }
 
 public enum LogEvent: String, Sendable {
@@ -194,6 +194,39 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "yatingEof": "雅婷 STT 辨識完成",
         "emptyTranscript": "辨識完成但沒有任何文字（請對照上方錄音那行的音量與全零比例）",
         "emptyAudio": "服務回傳空音訊",
+        // 雅婷經 ReminiCare Worker 轉送（代碼與 Worker 回應相同）
+        "speechWorkerTranscribe": "雅婷（經 Worker）辨識完成",
+        "speechWorkerSpeech": "雅婷（經 Worker）語音合成",
+        "worker_unauthorized": "語音 Worker：App Token 錯誤",
+        "worker_rate_limited": "語音 Worker：請求太頻繁",
+        "worker_quota": "雅婷額度用完或方案到期（Worker 回報）",
+        "worker_upstream_auth": "Worker 上的雅婷 Key 無效",
+        "worker_upstream_rate_limit": "雅婷限流（Worker 回報）",
+        "worker_upstream_error": "雅婷伺服器錯誤（Worker 回報）",
+        "worker_upstream_invalid": "雅婷回應格式不符（Worker 回報）",
+        "worker_upstream_unreachable": "Worker 連不上雅婷",
+        "worker_upstream_timeout": "雅婷沒有回應（Worker 回報）",
+        "worker_upstream_closed": "雅婷在辨識途中關閉連線（Worker 回報）",
+        "worker_timeout": "送完錄音後等不到辨識結果（Worker 回報）",
+        "worker_invalid_audio": "語音 Worker：錄音格式不被接受",
+        "worker_too_large": "語音 Worker：錄音太大",
+        "worker_misconfigured": "語音 Worker 尚未設定雅婷 Key",
+        "worker_unknown": "語音 Worker 回傳未知錯誤",
+        // 自動重試與備援
+        "sttRetry": "辨識失敗，自動用同一段錄音再試一次",
+        "sttRetryEmpty": "辨識沒有文字，自動用同一段錄音再試一次",
+        "sttRetrySucceeded": "自動重試後辨識成功",
+        "llmFallback_nvidia": "語言模型改用備援：NVIDIA",
+        "llmFallback_openai": "語言模型改用備援：OpenAI",
+        "llmFallback_gemini": "語言模型改用備援：Gemini",
+        "llmFallback_groq": "語言模型改用備援：Groq",
+        // 檢查更新
+        "updateCheck": "檢查更新",
+        "updateAvailable": "有新版本",
+        "updateNone": "已是最新版本",
+        "updateFailed": "檢查更新失敗",
+        "updateOpenAltStore": "開啟 AltStore 安裝更新",
+        "updateOpenPage": "沒有 AltStore，開啟下載頁面",
         "playStartFailed": "播放器無法開始播放",
         "playerError": "播放器發生錯誤",
         // LLM 用途
@@ -235,6 +268,9 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "netTarget_llm": "網路檢測：語言模型",
         "netTarget_image": "網路檢測：生圖",
         "netTarget_report": "網路檢測：錯誤回報",
+        "netTarget_speechWorker": "網路檢測：語音 Worker",
+        "netQuickCheck": "開始前快速檢查網路",
+        "netReason_unauthorized": "原因：語音 Worker 的 App Token 錯誤",
         "netReason_offline": "原因：沒有網路",
         "netReason_dns": "原因：DNS 找不到網址（可能被封鎖）",
         "netReason_refused": "原因：連線被拒（可能被防火牆擋）",
