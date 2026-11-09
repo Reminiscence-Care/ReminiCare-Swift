@@ -11,9 +11,7 @@
       "simple": { "limit": 3, "period": 60 }
     }
   ],
-  // Optional duplicate protection. Create with
-  //   pnpm exec wrangler kv namespace create REPORT_IDS
-  // then uncomment and paste the id.
-  // "kv_namespaces": [{ "binding": "REPORT_IDS", "id": "<id>" }],
+  // reportId → issue: stops duplicate issues on resend and authorizes audio uploads.
+  "kv_namespaces": [{ "binding": "REPORT_IDS", "id": "c26627845bc942fc940b35341dc377a6" }],
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }
