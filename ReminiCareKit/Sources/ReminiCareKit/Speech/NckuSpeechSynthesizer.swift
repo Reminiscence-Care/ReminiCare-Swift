@@ -1,6 +1,6 @@
 import Foundation
 
-/// What to try after NCKU 9998 fails to read Taiwanese Hanzi directly.
+/// What to try after NCKU Taiwanese TTS (9986) fails to read Hanzi directly.
 public enum TaiwaneseTtsFallback: String, Sendable, CaseIterable {
     case llmThenLegacy = "llm_legacy"
     case llmOnly = "llm"
@@ -97,7 +97,9 @@ public struct LlmTaiLoConverter: Sendable {
     }
 }
 
-/// NCKU VITS gateway (9998) with the Taiwanese fallback chain.
+/// NCKU TTS: Mandarin on the VITS gateway (`port`, 9998); Taiwanese on the
+/// Taiwanese-only server (9986, 2026-11-09), which reads Hanzi and Tâi-lô,
+/// with the fallback chain behind it.
 public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable {
     /// Up to three services in a row; must stay below the TTS cache timeout.
     public static let totalBudget: Duration = .seconds(140)
@@ -111,6 +113,9 @@ public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable
     public let fallback: TaiwaneseTtsFallback
     public let taiLo: LlmTaiLoConverter?
     public var tcp: TCPExchanging = NetworkTCPExchange()
+    /// Taiwanese-only server on the same host; speakers are 0–386 (old M04 is rejected).
+    public var taiwanesePort = 9986
+    public static let taiwaneseSpeaker = "0"
     public var legacyHost = "140.116.245.157"
     public var legacyPort = 10012
     private let hanziRejectedAt = LockedValue<Date?>(nil)
@@ -126,7 +131,7 @@ public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable
 
     private struct Outcome {
         var audio: Data?
-        /// The server answered but refused (status=false), so 9998 itself is reachable.
+        /// The server answered but refused (status=false), so the server itself is reachable.
         var rejected = false
     }
 
@@ -139,14 +144,14 @@ public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable
         func remaining() -> Duration { deadline - ContinuousClock.now }
 
         if language == .mandarin {
-            return await vits(text, lang: "zh", speaker: "4793", timeout: remaining()).audio
+            return await vits(text, port: port, lang: "zh", speaker: "4793", timeout: remaining()).audio
         }
         let hasHan = containsHan(text)
         let skipDirect = hasHan && fallback != .off
             && (hanziRejectedAt.current.map { Date().timeIntervalSince($0) < Self.hanziRejectionMemory } ?? false)
         var reachable = true
         if !skipDirect {
-            let direct = await vits(text, lang: "tw", speaker: "M04", timeout: remaining())
+            let direct = await vits(text, port: taiwanesePort, lang: "tw", speaker: Self.taiwaneseSpeaker, timeout: remaining())
             if let audio = direct.audio {
                 if hasHan { hanziRejectedAt.withValue { $0 = nil } }
                 return audio
@@ -159,7 +164,7 @@ public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable
         if fallback.usesLlm && hasHan && reachable {
             if let taiLo {
                 if let romanized = await convert(taiLo, text, timeout: remaining()), remaining() > .zero {
-                    let retry = await vits(romanized, lang: "tw", speaker: "M04", timeout: remaining(), startDetail: "tailo")
+                    let retry = await vits(romanized, port: taiwanesePort, lang: "tw", speaker: Self.taiwaneseSpeaker, timeout: remaining(), startDetail: "tailo")
                     if let audio = retry.audio { return audio }
                 }
             } else {
@@ -186,7 +191,7 @@ public final class NckuSpeechSynthesizer: SpeechSynthesizer, @unchecked Sendable
         }
     }
 
-    private func vits(_ text: String, lang: String, speaker: String, timeout: Duration, startDetail: String? = nil) async -> Outcome {
+    private func vits(_ text: String, port: Int, lang: String, speaker: String, timeout: Duration, startDetail: String? = nil) async -> Outcome {
         let watch = Stopwatch()
         AppLog.shared.record(.tts, .started, detail: startDetail ?? lang)
         guard timeout > .zero else {

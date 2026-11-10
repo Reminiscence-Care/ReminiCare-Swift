@@ -63,7 +63,7 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 ### 服務組裝 `Session/ServiceFactory.swift`
 
-依 `ConfigStore` 的 provider 選擇建立：LLM（OpenAI 相容，NVIDIA／Gemini／OpenAI／Groq／custom；Groq 免費的 `qwen/qwen3.8-27b` 在 2026-11-09 用虛構口誤句實測 7 個免費模型中校正最準最快，Qwen3 送 `reasoning_effort: none` 避免思考內容混進答案）、生圖（Cloudflare Worker 或 OpenAI 相容）、語音（`SpeechProvider`：`yating`＝經 `speech-worker/` 轉送，預設；`yatingDirect`＝iPad 自帶雅婷 Key 直連 WebSocket，只給開發除錯；`ncku`）。台語 TTS 備援鏈：成大 9998 原文 → LLM 轉台羅（沒有轉台羅 Key 就跳過）→ 舊服務 10012。`missingConfiguration()` 決定能否開始對話。
+依 `ConfigStore` 的 provider 選擇建立：LLM（OpenAI 相容，NVIDIA／Gemini／OpenAI／Groq／custom；Groq 免費的 `qwen/qwen3.8-27b` 在 2026-11-09 用虛構口誤句實測 7 個免費模型中校正最準最快，Qwen3 送 `reasoning_effort: none` 避免思考內容混進答案）、生圖（Cloudflare Worker 或 OpenAI 相容）、語音（`SpeechProvider`：`yating`＝經 `speech-worker/` 轉送，預設；`yatingDirect`＝iPad 自帶雅婷 Key 直連 WebSocket，只給開發除錯；`ncku`）。成大 TTS：中文走 9998（語者 4793），台語走 9986（2026-11-09 新的台語專用服務，漢字或台羅都收，語者 0–386，舊的 M04 會被拒，音檔 22050 Hz）。台語備援鏈：9986 原文 → LLM 轉台羅再送 9986（沒有轉台羅 Key 就跳過）→ 舊服務 10012。`missingConfiguration()` 決定能否開始對話。
 
 - **雅婷經 Worker**（`Speech/YatingWorkerSpeech.swift`＋`speech-worker/`）：App 用一般 HTTPS 送 16 kHz PCM，Worker 持有雅婷 Key 並自己連雅婷 WebSocket，所以擋 WebSocket 的網路也能辨識。App 只存 `SPEECH_WORKER_TOKEN`（Worker 的 `APP_TOKEN`，屬機密）。固定走 Worker、不做自動切換。Worker 部署與錯誤代碼見 `speech-worker/README.md`，部署屬使用者操作。
 - **自動重試／備援**：`recognizer()` 一律包 `RetryingSpeechRecognizer`，網路／逾時／伺服器錯誤或空字串時用同一段錄音再送一次（Key、格式、取消不重試）；空字串時 `LifeSession` 保留錄音，可按「重試辨識」。`llm()` 回傳 `FallbackLlmClient`：先用設定選的模型，失敗（取消除外）依 groq → nvidia → gemini → openai 換有 Key 的下一個。
