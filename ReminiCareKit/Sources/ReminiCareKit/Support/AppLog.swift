@@ -245,6 +245,9 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "transcriptEdited": "已手動修改辨識文字",
         "transcriptRerecord": "辨識文字不對，重新錄音",
         "typedAnswer": "改用打字輸入",
+        "transcriptTranslation": "LLM：台語轉華語",
+        "transcriptTranslated": "台語辨識結果已轉成華語",
+        "translationFailed": "台語轉華語失敗，沿用原文",
         "report_audio_failed": "回報的錄音上傳失敗",
         "reportAudio": "回報的錄音",
         // 錯誤回報

@@ -433,8 +433,12 @@ public final class LifeSession {
             let revision = stage == .revisionRecording
             isTranscribing = false
             var heard = text
+            if config.translatesTranscriptToMandarin {
+                heard = await mandarinTranscript(text)
+                guard isCurrent(current) else { return }
+            }
             if config.transcriptCorrectionEnabled {
-                heard = await correctedTranscript(text, revision: revision)
+                heard = await correctedTranscript(heard, revision: revision)
                 guard isCurrent(current) else { return }
             }
             if config.transcriptConfirmationEnabled {
@@ -477,6 +481,23 @@ public final class LifeSession {
             AppLog.shared.record(.ai, .warning, operationId: operation, detail: "correctionFailed")
         }
         return text
+    }
+
+    /// Taiwanese Hanzi (NCKU medical model) in Mandarin, or the original on failure.
+    private func mandarinTranscript(_ text: String) async -> String {
+        isCorrecting = true
+        changed()
+        defer { isCorrecting = false }
+        let operation = session
+        guard let translated = await ai.mandarinTranscript(text) else {
+            AppLog.shared.record(.ai, .warning, operationId: operation, detail: "translationFailed")
+            return text
+        }
+        if translated != text {
+            AppLog.shared.record(.ai, .progress, operationId: operation, detail: "transcriptTranslated")
+            AppLog.shared.recordTranscription(translated, operationId: operation, corrected: true)
+        }
+        return translated
     }
 
     /// Stores the turn and makes (or revises) the photo.

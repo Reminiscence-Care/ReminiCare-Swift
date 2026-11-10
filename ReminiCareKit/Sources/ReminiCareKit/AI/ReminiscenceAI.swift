@@ -185,6 +185,33 @@ public struct ReminiscenceAI: Sendable {
         return text == transcript.trimmingCharacters(in: .whitespacesAndNewlines) ? .unchanged : .corrected(text)
     }
 
+    /// Taiwanese Hanzi from NCKU's medical model, in Mandarin; nil on failure,
+    /// timeout or an implausible reply (the caller keeps the original).
+    public func mandarinTranscript(_ transcript: String, timeout: Duration = correctionTimeout) async -> String? {
+        let messages = [
+            LlmMessage("system",
+                "你是台語翻譯。逐字稿是台灣長輩回答問題的語音辨識結果，台語部分以台語漢字書寫（例如「佇」「細漢」「食飽未」），也可能夾雜華語。"
+                + "把它翻成自然的台灣華語（繁體中文），意思不可增減，不要潤飾、摘要或回答問題；已經是華語的部分保持原樣；人名、地名照寫。"
+                + "只輸出 JSON：{\"text\":\"翻譯後的完整逐字稿\"}。"),
+            LlmMessage("user", transcript),
+        ]
+        do {
+            let raw = try await withTimeout(timeout) {
+                try await self.ask("transcriptTranslation", messages, temperature: 0.1, maxTokens: 1024, jsonObject: true)
+            }
+            guard let data = try? ProviderResponseParser.decodeJSONObject(raw, requiredKey: "text"),
+                  let text = (data["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !text.isEmpty
+            else { return nil }
+            // A translation stays about as long as what was said; much longer means it added content.
+            let before = transcript.filter { $0.isLetter || $0.isNumber }.count
+            let after = text.filter { $0.isLetter || $0.isNumber }.count
+            return after <= max(before * 2, before + 8) ? text : nil
+        } catch {
+            return nil
+        }
+    }
+
     /// The corrected text, or nil when the reply is unusable or rewrites too
     /// much to be a recognition fix.
     static func validateCorrection(_ raw: String, original: String, question: String) -> String? {

@@ -54,6 +54,7 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 - 回答與修圖要求辨識完成後：設定 `STT_LLM_CORRECTION`（預設開）時，先用 `ReminiscenceAI.correctTranscript` 依問題校正同音或近音錯字。失敗、逾時（20 秒）或改動過多就沿用原文，不顯示錯誤。設定 `STT_CONFIRM_TRANSCRIPT`（預設關）時，進入 `transcriptConfirmation`，由人確認、修改或重新錄音後才生圖。原文和採用的文字不同時，原文存在 `ConversationTurn.rawText`。
 - 自我介紹**不**校正：稱呼不自動改字，同音由人確認。
+- 成大 STT 模型可選（`NCKU_STT_MODEL`，`NckuSttModel`）：預設 `TA and ZH Medical V1`，台語輸出台語漢字、較準；`Chinese & Taiwanese` 會直接把台語翻成華語，但常聽錯（2026-11-10 用合成台語比較）。用 Medical 時 `NCKU_STT_TO_MANDARIN`（預設開）會在校正前先用 LLM 把回答翻成華語（`ReminiscenceAI.mandarinTranscript`，失敗、逾時或變長太多就沿用原文；原文存 `rawText`）。自我介紹不翻。
 - 辨識不能用時的備案：回答與修圖畫面有「打字回答」「打字描述要修改的地方」→ `submitTypedText`，打的字直接生圖，不校正、不進確認畫面（Log `typedAnswer`）。
 - 錄音不再直接刪：`clearPendingAudio` 把檔案移進 `RecentRecordings`（`tmp/reminicare_recent/`，最新 5 段、24 小時），給回報附錄音用。
 

@@ -76,7 +76,9 @@ public struct ServiceFactory: Sendable {
         case .ncku:
             let raw = config.value("NCKU_STT_URL")
             let endpoint = URL(string: raw.isEmpty ? ConfigKey.defaultNckuSttURL : raw) ?? URL(string: ConfigKey.defaultNckuSttURL)!
-            return NckuSpeechRecognizer(token: { config.value("NCKU_STT_TOKEN") }, endpoint: endpoint)
+            var recognizer = NckuSpeechRecognizer(token: { config.value("NCKU_STT_TOKEN") }, endpoint: endpoint)
+            recognizer.model = config.nckuSttModel
+            return recognizer
         case .yatingDirect:
             return YatingSpeechRecognizer(apiKey: { config.value("YATING_API_KEY") })
         case .yating:

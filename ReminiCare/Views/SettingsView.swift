@@ -94,6 +94,14 @@ struct SettingsView: View {
                                 ForEach(TaiLoModelSettings.providers, id: \.id) { Text($0.label).tag($0.id) }
                             }
                         }
+                        Picker("成大語音辨識模型", selection: choice(ConfigKey.nckuSttModel, default: NckuSttModel.medical.rawValue)) {
+                            ForEach(NckuSttModel.allCases, id: \.self) { Text($0.label).tag($0.rawValue) }
+                        }
+                        if NckuSttModel.parse(values[ConfigKey.nckuSttModel]) == .medical {
+                            Toggle("台語辨識結果用 AI 轉成華語", isOn: toggle(ConfigKey.nckuSttToMandarin, default: true))
+                            Text("這個模型把台語寫成台語漢字（例如「我細漢佇溪仔邊掠魚仔」），開啟後先用上方的語言模型翻成華語再生圖；失敗時沿用原文。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                         Text("台語：成大台語伺服器無法直接念漢字時，先用上方選的模型轉成台羅再合成（OpenAI 預設 gpt-4.1）；仍失敗才改用音質較差的舊伺服器。")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
@@ -174,6 +182,11 @@ struct SettingsView: View {
 
     private func binding(_ key: String) -> Binding<String> {
         Binding(get: { values[key] ?? "" }, set: { values[key] = $0 })
+    }
+
+    /// A setting chosen from fixed values; an empty value means `default`.
+    private func choice(_ key: String, default fallback: String) -> Binding<String> {
+        Binding(get: { (values[key] ?? "").isEmpty ? fallback : values[key]! }, set: { values[key] = $0 })
     }
 
     /// A "true"/"false" setting as a switch; an empty value means `default`.

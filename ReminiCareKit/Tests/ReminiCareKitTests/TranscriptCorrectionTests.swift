@@ -74,13 +74,14 @@ private struct SlowLlm: LlmClient {
     }
 
     func make(
-        transcripts: [String], correction: Bool = true, confirmation: Bool = false,
+        transcripts: [String], correction: Bool = true, confirmation: Bool = false, settings: [String: String] = [:],
         correct: @escaping @Sendable (String) throws -> String = { _ in #"{"text":"我沒有織過布"}"# }
     ) throws -> Harness {
         let root = try temporaryDirectory()
         let defaults = UserDefaults(suiteName: "reminicare-tests-\(UUID().uuidString)")!
         defaults.set(correction ? "true" : "false", forKey: ConfigKey.transcriptCorrection)
         defaults.set(confirmation ? "true" : "false", forKey: ConfigKey.transcriptConfirmation)
+        for (key, value) in settings { defaults.set(value, forKey: key) }
         let config = ConfigStore(defaults: defaults, secrets: MemorySecretStore())
         try config.load()
         let voice = FakeVoice(directory: root)
@@ -90,6 +91,7 @@ private struct SlowLlm: LlmClient {
         let llm = FakeLlm { messages in
             let system = messages.first?.content ?? ""
             let user = messages.last?.content ?? ""
+            if system.contains("台語翻譯") { return #"{"text":"我小時候常常去溪邊抓魚"}"# }
             if system.contains("語音辨識校對員") {
                 requests.withValue { $0.append(user) }
                 return try correct(user)
@@ -292,5 +294,41 @@ private struct SlowLlm: LlmClient {
         await h.session.submitTypedText("我沒有織過布")
         #expect(h.session.turns.isEmpty)
         #expect(h.image.calls.current == 0)
+    }
+
+    // MARK: NCKU Taiwanese → Mandarin
+
+    @Test func nckuTaiwaneseIsTranslatedBeforeThePhoto() async throws {
+        let taiwanese = "我細漢定定去溪仔邊掠魚仔"
+        let h = try make(transcripts: ["我叫王小明", taiwanese], correction: false,
+                         settings: [ConfigKey.speechProvider: "ncku"])
+        try await reachQuestion(h)
+        try await answer(h, until: .evaluation)
+        #expect(h.session.turns.last?.text == "我小時候常常去溪邊抓魚")
+        #expect(h.session.turns.last?.rawText == taiwanese)
+    }
+
+    @Test func translationOnlyForTheMedicalModelAndWhenOn() throws {
+        func config(_ values: [String: String]) throws -> ConfigStore {
+            let defaults = UserDefaults(suiteName: "reminicare-tests-\(UUID().uuidString)")!
+            for (key, value) in values { defaults.set(value, forKey: key) }
+            let config = ConfigStore(defaults: defaults, secrets: MemorySecretStore())
+            try config.load()
+            return config
+        }
+        #expect(try config([ConfigKey.speechProvider: "ncku"]).translatesTranscriptToMandarin)
+        #expect(try config([ConfigKey.speechProvider: "ncku"]).nckuSttModel == .medical)
+        #expect(try !config([ConfigKey.speechProvider: "ncku", ConfigKey.nckuSttModel: NckuSttModel.mixed.rawValue]).translatesTranscriptToMandarin)
+        #expect(try !config([ConfigKey.speechProvider: "ncku", ConfigKey.nckuSttToMandarin: "false"]).translatesTranscriptToMandarin)
+        #expect(try !config([ConfigKey.speechProvider: "yating"]).translatesTranscriptToMandarin)
+    }
+
+    @Test func implausibleTranslationKeepsTheOriginal() async {
+        let padded = ReminiscenceAI(client: FakeLlm(#"{"text":"我小時候常常去溪邊抓魚，那時候的溪水很清澈，魚也很多，大家都很開心地一起玩"}"#))
+        #expect(await padded.mandarinTranscript("我細漢掠魚仔") == nil)
+        let failing = ReminiscenceAI(client: FakeLlm { _ in throw AIServiceError(.network, "offline") })
+        #expect(await failing.mandarinTranscript("我細漢掠魚仔") == nil)
+        let good = ReminiscenceAI(client: FakeLlm(#"{"text":"我小時候抓魚"}"#))
+        #expect(await good.mandarinTranscript("我細漢掠魚仔") == "我小時候抓魚")
     }
 }

@@ -250,6 +250,7 @@ public struct ServiceHealthChecker: Sendable {
         let raw = config.value("NCKU_STT_URL")
         guard let endpoint = URL(string: raw.isEmpty ? ConfigKey.defaultNckuSttURL : raw) else { return (.notConfigured, nil) }
         var recognizer = NckuSpeechRecognizer(token: { token }, endpoint: endpoint)
+        recognizer.model = config.nckuSttModel
         recognizer.http = http
         recognizer.timeout = timeout
         // Half a second of silence: the smallest valid request.
