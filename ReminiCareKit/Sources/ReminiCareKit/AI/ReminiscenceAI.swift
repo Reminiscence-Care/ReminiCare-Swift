@@ -12,6 +12,13 @@ public struct ReminiscenceAI: Sendable {
     public let client: LlmClient
     public init(client: LlmClient) { self.client = client }
 
+    /// Some models (e.g. Qwen on Groq) slip into Simplified Chinese despite the
+    /// prompt. ICU's Hans-Hant converts only simplified characters and leaves
+    /// Traditional text (台, 裡, 後…) as it is.
+    static func traditional(_ text: String) -> String {
+        text.applyingTransform(StringTransform("Hans-Hant"), reverse: false) ?? text
+    }
+
     /// One LLM call tagged with its purpose in the App Log, so a failure line
     /// says which step failed (the client logs the HTTP status and error kind).
     private func ask(
@@ -22,7 +29,7 @@ public struct ReminiscenceAI: Sendable {
         do {
             let reply = try await client.complete(messages, temperature: temperature, maxTokens: maxTokens, jsonObject: jsonObject)
             AppLog.shared.record(.ai, .completed, durationMs: watch.milliseconds, detail: purpose)
-            return reply
+            return Self.traditional(reply)
         } catch {
             AppLog.shared.record(
                 .ai, isCancellation(error) ? .cancelled : .failed, durationMs: watch.milliseconds,

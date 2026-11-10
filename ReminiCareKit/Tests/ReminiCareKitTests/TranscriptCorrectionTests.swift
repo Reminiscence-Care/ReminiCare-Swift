@@ -44,6 +44,13 @@ private struct SlowLlm: LlmClient {
         #expect(ReminiscenceAI.validateCorrection(#"{"text":"我1960年在台南織布"}"#, original: original, question: question) == original)
     }
 
+    @Test func simplifiedRepliesBecomeTraditional() async throws {
+        #expect(ReminiscenceAI.traditional("记得以前在台南的菜市场买菜吗？") == "記得以前在台南的菜市場買菜嗎？")
+        #expect(ReminiscenceAI.traditional("還記得裡面的台灣小吃嗎？") == "還記得裡面的台灣小吃嗎？")
+        let ai = ReminiscenceAI(client: FakeLlm("那时候您最喜欢吃什么？"))
+        #expect(try await ai.extendedQuestion(previous: "q", response: "a") == "那時候您最喜歡吃什麼？")
+    }
+
     @Test func reportsEachOutcome() async {
         let corrected = ReminiscenceAI(client: FakeLlm(#"{"text":"我沒有織過布"}"#))
         #expect(await corrected.correctTranscript(question: question, transcript: misheard) == .corrected(fixed))
