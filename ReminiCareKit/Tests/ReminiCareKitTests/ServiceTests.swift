@@ -13,6 +13,21 @@ import Testing
         #expect(segments.dropLast().allSatisfy { $0.pcm.count > WavAudio.bytesPerSecond })
     }
 
+    @Test func fiveSecondSegmentsAreSentWhole() {
+        // Speech with pauses: loud tone for 0.5 s, then near-silence (small negatives encode to "/").
+        var pcm = Data()
+        for i in 0..<(WavAudio.bytesPerSecond * 5 / 2) {
+            let value = (i / 8000) % 2 == 0 ? Int16(3000 * sin(Double(i) * 2 * .pi * 220 / 16000)) : Int16(i * 7 % 7 - 3)
+            withUnsafeBytes(of: value.littleEndian) { pcm.append(contentsOf: $0) }
+        }
+        let recognizer = NckuSpeechRecognizer(token: { String(repeating: "x", count: 40) }, endpoint: URL(string: "https://stt.example")!)
+        #expect(recognizer.body(for: WavAudio(pcm: pcm)).count <= NckuSpeechRecognizer.maximumBodyBytes)
+        // Halving for a 413 cuts near the middle and covers every sample.
+        let parts = WavAudio(pcm: pcm).split(maximumBytes: (pcm.count / 4) * 2 + WavAudio.bytesPerSecond / 4)
+        #expect(parts.count == 2)
+        #expect(parts.reduce(Data()) { $0 + $1.pcm } == pcm)
+    }
+
     @Test func acceptsExtensiblePcmAndExtraChunks() throws {
         var fmt = Data()
         func le16(_ v: Int) { withUnsafeBytes(of: UInt16(v).littleEndian) { fmt.append(contentsOf: $0) } }
