@@ -33,13 +33,29 @@ public struct AppleSpeechRecognizer: SpeechRecognizer {
             AppLog.shared.record(.stt, .failed, detail: "appleSpeechUnavailable")
             throw SttError(.authentication, "這台 iPad 沒有繁體中文離線語音模型，請改用其他語音服務。")
         }
-        let request = SFSpeechURLRecognitionRequest(url: file)
+        // Read the file ourselves and hand Apple audio buffers: with SFSpeechURLRecognitionRequest the
+        // first iPad test (report 5) came back empty in 0.3 s for 6-second recordings with normal volume.
+        let buffer: AVAudioPCMBuffer
+        do {
+            let audio = try AVAudioFile(forReading: file)
+            guard let read = AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: AVAudioFrameCount(audio.length)) else {
+                throw SttError(.invalidAudio, "")
+            }
+            try audio.read(into: read)
+            buffer = read
+        } catch {
+            AppLog.shared.record(.stt, .failed, detail: "invalidAudio")
+            throw SttError(.invalidAudio, "錄音格式不正確或音檔不完整。")
+        }
+        let request = SFSpeechAudioBufferRecognitionRequest()
         request.requiresOnDeviceRecognition = true
         request.shouldReportPartialResults = false
         request.addsPunctuation = true
+        request.append(buffer)
+        request.endAudio()
         progress?(0, 1)
         let watch = Stopwatch()
-        AppLog.shared.record(.stt, .started, detail: "appleSpeech")
+        AppLog.shared.record(.stt, .started, bytes: Int(buffer.frameLength) * 2, detail: "appleSpeech")
         do {
             let text = try await withTimeout(timeout) { try await Self.recognize(request, with: recognizer) }
             AppLog.shared.record(.stt, .requestCompleted, durationMs: watch.milliseconds, detail: "appleSpeech")
@@ -55,7 +71,7 @@ public struct AppleSpeechRecognizer: SpeechRecognizer {
     }
 
     /// The final transcript; "" when no speech was detected.
-    private static func recognize(_ request: SFSpeechURLRecognitionRequest, with recognizer: SFSpeechRecognizer) async throws -> String {
+    private static func recognize(_ request: SFSpeechAudioBufferRecognitionRequest, with recognizer: SFSpeechRecognizer) async throws -> String {
         let task = LockedValue<SFSpeechRecognitionTask?>(nil)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
@@ -65,7 +81,11 @@ public struct AppleSpeechRecognizer: SpeechRecognizer {
                     continuation.resume(with: result)
                 }
                 let started = recognizer.recognitionTask(with: request) { result, error in
-                    if let result, result.isFinal { return finish(.success(result.bestTranscription.formattedString)) }
+                    if let result, result.isFinal {
+                        let text = result.bestTranscription.formattedString
+                        if text.isEmpty { AppLog.shared.record(.stt, .warning, detail: "appleSpeechEmptyResult") }
+                        return finish(.success(text))
+                    }
                     guard let error else { return }
                     finish(Self.outcome(error as NSError))
                 }
@@ -77,6 +97,9 @@ public struct AppleSpeechRecognizer: SpeechRecognizer {
     }
 
     static func outcome(_ error: NSError) -> Result<String, Error> {
+        // The code says why Apple gave up; the domain is one of a few fixed names.
+        let domain = ["kAFAssistantErrorDomain": "Assistant", "kLSRErrorDomain": "LSR", "SFSpeechErrorDomain": "Speech"][error.domain] ?? "Other"
+        AppLog.shared.record(.stt, .warning, statusCode: error.code, detail: "appleSpeechError\(domain)")
         // kAFAssistantErrorDomain 1110 / 203: nothing recognizable was said; an empty transcript lets the session ask again.
         if error.domain == "kAFAssistantErrorDomain" && [1110, 203].contains(error.code) { return .success("") }
         if error.domain == "kAFAssistantErrorDomain" && [216, 301].contains(error.code) {
