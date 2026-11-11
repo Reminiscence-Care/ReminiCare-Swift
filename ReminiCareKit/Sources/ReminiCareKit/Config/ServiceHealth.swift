@@ -109,7 +109,7 @@ public struct ServiceHealthChecker: Sendable {
         case .image: await checkImage()
         case .speechRecognition where config.usesAppleSpeech:
             // On-device: nothing to reach; only whether this iPad has the zh-TW model.
-            (AppleSpeechRecognizer.isAvailableOffline ? HealthStatus.ok : .notConfigured, nil)
+            (await AppleSpeechRecognizer.isAvailable() ? HealthStatus.ok : .notConfigured, nil)
         case .speechRecognition:
             switch speech {
             case .ncku: await checkNckuStt()

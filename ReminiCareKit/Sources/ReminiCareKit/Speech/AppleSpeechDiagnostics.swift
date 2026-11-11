@@ -26,7 +26,7 @@ public enum AppleSpeechDiagnostics {
         } else {
             lines.append(Line(method: "舊框架狀態", outcome: "不支援 zh-TW"))
         }
-        if #available(iOS 26, *) {
+        if #available(iOS 26, macOS 26, *) {
             lines += await analyzer(file, locale: locale)
         } else {
             lines.append(Line(method: "新框架", outcome: "需要 iPadOS 26"))
@@ -68,7 +68,7 @@ public enum AppleSpeechDiagnostics {
         }
     }
 
-    /// Like `AppleSpeechRecognizer.recognize`, but errors are passed through untouched so the code is visible.
+    /// Legacy recognition; errors are passed through untouched so the code is visible.
     private static func rawRecognize(_ request: SFSpeechRecognitionRequest, with recognizer: SFSpeechRecognizer) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             let resumed = LockedValue(false)
@@ -83,7 +83,7 @@ public enum AppleSpeechDiagnostics {
         }
     }
 
-    @available(iOS 26, *)
+    @available(iOS 26, macOS 26, *)
     private static func analyzer(_ file: URL, locale: Locale) async -> [Line] {
         var lines: [Line] = []
         let wanted = locale.identifier(.bcp47)
@@ -95,7 +95,7 @@ public enum AppleSpeechDiagnostics {
         if speechLocales.contains(wanted) {
             lines.append(await timed("新框架・SpeechTranscriber") {
                 let module = SpeechTranscriber(locale: locale, preset: .transcription)
-                return try await transcribe(file, module: module) {
+                return try await AppleSpeechRecognizer.analyze(file, module: module) {
                     var text = ""
                     for try await result in module.results where result.isFinal { text += String(result.text.characters) }
                     return text
@@ -107,7 +107,7 @@ public enum AppleSpeechDiagnostics {
         if dictationLocales.contains(wanted) {
             lines.append(await timed("新框架・DictationTranscriber") {
                 let module = DictationTranscriber(locale: locale, preset: .shortDictation)
-                return try await transcribe(file, module: module) {
+                return try await AppleSpeechRecognizer.analyze(file, module: module) {
                     var text = ""
                     for try await result in module.results where result.isFinal { text += String(result.text.characters) }
                     return text
@@ -117,24 +117,5 @@ public enum AppleSpeechDiagnostics {
             lines.append(Line(method: "新框架・DictationTranscriber", outcome: "不支援 \(wanted)"))
         }
         return lines
-    }
-
-    @available(iOS 26, *)
-    private static func transcribe(
-        _ file: URL, module: any SpeechModule, results: @escaping @Sendable () async throws -> String
-    ) async throws -> String {
-        // Downloads the model when it is missing (needs network once).
-        if let install = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
-            try await install.downloadAndInstall()
-        }
-        let audio = try AVAudioFile(forReading: file)
-        let analyzer = SpeechAnalyzer(modules: [module])
-        async let text = results()
-        if let last = try await analyzer.analyzeSequence(from: audio) {
-            try await analyzer.finalizeAndFinish(through: last)
-        } else {
-            await analyzer.cancelAndFinishNow()
-        }
-        return try await text
     }
 }
