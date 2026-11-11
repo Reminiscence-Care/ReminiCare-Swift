@@ -71,7 +71,7 @@ public struct AppleSpeechRecognizer: SpeechRecognizer {
     }
 
     /// The final transcript; "" when no speech was detected.
-    private static func recognize(_ request: SFSpeechAudioBufferRecognitionRequest, with recognizer: SFSpeechRecognizer) async throws -> String {
+    static func recognize(_ request: SFSpeechRecognitionRequest, with recognizer: SFSpeechRecognizer) async throws -> String {
         let task = LockedValue<SFSpeechRecognitionTask?>(nil)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
