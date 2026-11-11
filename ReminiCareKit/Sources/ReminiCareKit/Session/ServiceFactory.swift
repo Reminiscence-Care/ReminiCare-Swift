@@ -72,6 +72,7 @@ public struct ServiceFactory: Sendable {
 
     func baseRecognizer() -> SpeechRecognizer {
         let config = config
+        if config.usesAppleSpeech { return AppleSpeechRecognizer() }
         switch speech {
         case .ncku:
             let raw = config.value("NCKU_STT_URL")

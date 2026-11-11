@@ -84,6 +84,7 @@ public struct ServiceHealthChecker: Sendable {
             let settings = factory.llmConfig()
             return "\(settings.displayName) \(settings.model)"
         case .image: return factory.imageConfig().displayName
+        case .speechRecognition where config.usesAppleSpeech: return "Apple 離線辨識（國語）"
         case .speechRecognition, .speechSynthesis: return speech.label
         }
     }
@@ -106,6 +107,9 @@ public struct ServiceHealthChecker: Sendable {
         switch kind {
         case .llm: await checkLlm()
         case .image: await checkImage()
+        case .speechRecognition where config.usesAppleSpeech:
+            // On-device: nothing to reach; only whether this iPad has the zh-TW model.
+            (AppleSpeechRecognizer.isAvailableOffline ? HealthStatus.ok : .notConfigured, nil)
         case .speechRecognition:
             switch speech {
             case .ncku: await checkNckuStt()
