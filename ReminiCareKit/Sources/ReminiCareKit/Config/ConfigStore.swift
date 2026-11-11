@@ -29,6 +29,8 @@ public enum ConfigKey {
     public static let maxRecord = "VOICE_MAX_RECORD_LIMIT"
     public static let transcriptCorrection = "STT_LLM_CORRECTION"
     public static let transcriptConfirmation = "STT_CONFIRM_TRANSCRIPT"
+    public static let nckuSttModel = "NCKU_STT_MODEL"
+    public static let nckuSttToMandarin = "NCKU_STT_TO_MANDARIN"
     public static let errorReportURL = "ERROR_REPORT_URL"
     public static let defaultErrorReportURL = "https://reminicare-report-api.hding49.workers.dev"
     public static let defaultNckuSttURL = "http://140.116.245.149:5002/proxy"
@@ -71,7 +73,7 @@ public final class ConfigStore: @unchecked Sendable {
     public static let fields: [ConfigField] = [
         ConfigField("NCKU_STT_URL", "成大 STT 端點（正式部署需 HTTPS）", hint: "https://...", secure: false, default: ConfigKey.defaultNckuSttURL),
         ConfigField("NCKU_TTS_HOST", "成大 TTS 主機", hint: "tts.example.org", secure: false, default: ConfigKey.defaultNckuTtsHost),
-        ConfigField("NCKU_TTS_PORT", "成大 TTS Port", hint: "9998", secure: false, default: "9998"),
+        ConfigField("NCKU_TTS_PORT", "成大 TTS Port（中文；台語固定 9986）", hint: "9998", secure: false, default: "9998"),
         ConfigField("NCKU_TTS_TLS", "成大 TTS 使用 TLS（true/false）", hint: "false", secure: false, default: "false"),
         ConfigField(ConfigKey.taiLoModel, "轉台羅模型（留白用預設）", hint: "gpt-4.1", secure: false),
         ConfigField(ConfigKey.introSilence, "自我介紹：說完後等待秒數（1–30）", hint: "3", secure: false, default: "3"),
@@ -101,6 +103,8 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField(ConfigKey.maxRecord, "最長錄音秒數", hint: "180", secure: false, default: "180"),
         ConfigField(ConfigKey.transcriptCorrection, "用 AI 校正辨識錯字", hint: "true", secure: false, default: "true"),
         ConfigField(ConfigKey.transcriptConfirmation, "生圖前確認辨識文字", hint: "false", secure: false, default: "false"),
+        ConfigField(ConfigKey.nckuSttModel, "成大 STT 模型", hint: NckuSttModel.medical.rawValue, secure: false, default: NckuSttModel.medical.rawValue),
+        ConfigField(ConfigKey.nckuSttToMandarin, "成大台語辨識結果用 AI 轉華語", hint: "true", secure: false, default: "true"),
         ConfigField(ConfigKey.errorReportURL, "錯誤回報網址", hint: "https://reminicare-report-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultErrorReportURL),
     ]
 
@@ -207,7 +211,7 @@ public final class ConfigStore: @unchecked Sendable {
         // Direct and Worker Yating use the same voices, so they share cached audio.
         let speech = SpeechProvider(value(ConfigKey.speechProvider)) == .ncku ? "ncku" : "yating"
         return "\(speech)|\(value("NCKU_TTS_HOST"))|\(value("NCKU_TTS_PORT"))|"
-            + "tw:M04|zh:4793|yating:tw=tai_female_1,zh=zh_en_female_1|"
+            + "tw:9986/0|zh:4793|yating:tw=tai_female_1,zh=zh_en_female_1|"
             + "tw-fallback:\(fallback)|tailo:\(taiLo)/\(value(ConfigKey.taiLoModel).trimmingCharacters(in: .whitespaces))"
     }
 
@@ -226,6 +230,12 @@ public final class ConfigStore: @unchecked Sendable {
     public var transcriptCorrectionEnabled: Bool { value(ConfigKey.transcriptCorrection) != "false" }
     /// Show the recognized text for confirmation before making an image (off unless turned on).
     public var transcriptConfirmationEnabled: Bool { value(ConfigKey.transcriptConfirmation) == "true" }
+    public var nckuSttModel: NckuSttModel { NckuSttModel.parse(value(ConfigKey.nckuSttModel)) }
+    /// NCKU's medical model writes Taiwanese as Taiwanese Hanzi; translate answers to Mandarin (on unless turned off).
+    public var translatesTranscriptToMandarin: Bool {
+        SpeechProvider(value(ConfigKey.speechProvider)) == .ncku && nckuSttModel == .medical
+            && value(ConfigKey.nckuSttToMandarin) != "false"
+    }
 
     public func silenceSeconds(introduction: Bool) -> Double {
         Double(value(introduction ? ConfigKey.introSilence : ConfigKey.chatSilence)) ?? (introduction ? 3 : 6)

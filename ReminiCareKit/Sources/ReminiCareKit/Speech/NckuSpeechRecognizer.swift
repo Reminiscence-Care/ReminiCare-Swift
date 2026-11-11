@@ -18,11 +18,31 @@ public func nckuSttErrorDetail(statusCode: Int, body: String) -> String {
     }
 }
 
+/// NCKU ASR model, sent as `lang`. Compared 2026-11-10 on synthesized Taiwanese:
+/// `medical` wrote all three sentences as Taiwanese Hanzi almost word for word,
+/// `mixed` translated to Mandarin but misheard two; both got Mandarin right.
+public enum NckuSttModel: String, Sendable, CaseIterable {
+    case medical = "TA and ZH Medical V1"
+    case mixed = "Chinese & Taiwanese"
+
+    public var label: String {
+        switch self {
+        case .medical: "國台語（台語輸出台語漢字，較準）"
+        case .mixed: "國台語混合（台語直接輸出華語）"
+        }
+    }
+
+    public static func parse(_ raw: String?) -> NckuSttModel {
+        NckuSttModel(rawValue: raw?.trimmingCharacters(in: .whitespaces) ?? "") ?? .medical
+    }
+}
+
 /// NCKU ASR proxy: 5-second segments, two concurrent uploads, halves a segment the server rejects as too large.
 public struct NckuSpeechRecognizer: SpeechRecognizer {
     public static let maximumBodyBytes = 240 * 1024
     public let token: @Sendable () -> String
     public let endpoint: URL
+    public var model: NckuSttModel = .medical
     public var http: HTTPSending = URLSession.shared
     public var timeout: Duration = .seconds(60)
 
@@ -69,7 +89,7 @@ public struct NckuSpeechRecognizer: SpeechRecognizer {
         func encode(_ text: String) -> String {
             (text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text).replacingOccurrences(of: "%20", with: "+")
         }
-        let fields = [("lang", "Chinese & Taiwanese"), ("token", token()), ("audio", audio.encode().base64EncodedString())]
+        let fields = [("lang", model.rawValue), ("token", token()), ("audio", audio.encode().base64EncodedString())]
         return Data(fields.map { "\(encode($0.0))=\(encode($0.1))" }.joined(separator: "&").utf8)
     }
 

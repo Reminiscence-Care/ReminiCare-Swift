@@ -303,3 +303,26 @@ import Testing
         #expect(preferences.shouldCheck(now: now.addingTimeInterval(25 * 3_600)))
     }
 }
+
+@Suite struct NckuTaiwaneseTtsTests {
+    struct RecordingTCP: TCPExchanging {
+        let seen = LockedValue<[(port: Int, message: String)]>([])
+        func exchange(host: String, port: Int, tls: Bool, payload: Data, timeout: Duration, maximumBytes: Int) async throws -> Data {
+            seen.withValue { $0.append((port, String(decoding: payload, as: UTF8.self))) }
+            let wav = Data("RIFF....WAVEfmt ".utf8).base64EncodedString()
+            return Data(#"{"status":true,"bytes":"\#(wav)"}"#.utf8)
+        }
+    }
+
+    @Test func taiwaneseGoesTo9986AndMandarinStaysOnTheConfiguredPort() async {
+        let tcp = RecordingTCP()
+        let tts = NckuSpeechSynthesizer(host: "tts.example", port: 9998, tls: false, token: { "t" }, fallback: .off, taiLo: nil)
+        tts.tcp = tcp
+        #expect(await tts.synthesize("阿公佇菜市仔", language: .taiwanese) != nil)
+        #expect(await tts.synthesize("您好", language: .mandarin) != nil)
+        let seen = tcp.seen.current
+        #expect(seen.map(\.port) == [9986, 9998])
+        #expect(seen.first?.message == "10012@@@t@@@tw@@@0@@@阿公佇菜市仔EOT")
+        #expect(seen.last?.message.contains("@@@zh@@@4793@@@") == true)
+    }
+}
