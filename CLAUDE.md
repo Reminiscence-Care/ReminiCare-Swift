@@ -52,9 +52,10 @@ wsl.exe -d Debian -- bash -l /mnt/d/NCKU/Grade3-2/IMIS/FinalProject/Flutter/Remi
 
 `@MainActor @Observable` 的狀態機，`LifeStage`：topicLoading → topicSelection → introduction → question → imageGenerating → evaluation ⇄ revisionRecording／revisionGenerating → summary。
 
-- 回答與修圖要求辨識完成後：設定 `STT_LLM_CORRECTION`（預設開）時，先用 `ReminiscenceAI.correctTranscript` 依問題校正同音或近音錯字。失敗、逾時（20 秒）或改動過多就沿用原文，不顯示錯誤。設定 `STT_CONFIRM_TRANSCRIPT`（預設關）時，進入 `transcriptConfirmation`，由人確認、修改或重新錄音後才生圖。原文和採用的文字不同時，原文存在 `ConversationTurn.rawText`。
+- 回答與修圖要求辨識完成後：設定 `STT_LLM_CORRECTION`（預設開）時，先用 `ReminiscenceAI.correctTranscript` 依問題校正同音或近音錯字。失敗、逾時（20 秒）、改動過多，或被換掉的字讀音不像（`soundsAlike`：用 iOS 漢字轉拼音逐字比韻母，容許 zh/z、ch/c、sh/s、ing/in、eng/en 與聲母不同）就沿用原文，不顯示錯誤。設定 `STT_CONFIRM_TRANSCRIPT`（預設關）時，進入 `transcriptConfirmation`，由人確認、修改或重新錄音後才生圖。原文和採用的文字不同時，原文存在 `ConversationTurn.rawText`。
 - 自我介紹**不**校正：稱呼不自動改字，同音由人確認。
-- 成大 STT 模型可選（`NCKU_STT_MODEL`，`NckuSttModel`）：預設 `TA and ZH Medical V1`，台語輸出台語漢字、較準；`Chinese & Taiwanese` 會直接把台語翻成華語，但常聽錯（2026-11-10 用合成台語比較）。用 Medical 時 `NCKU_STT_TO_MANDARIN`（預設開）會在校正前先用 LLM 把回答翻成華語（`ReminiscenceAI.mandarinTranscript`，失敗、逾時或變長太多就沿用原文；原文存 `rawText`）。自我介紹不翻。
+- 成大 STT 每段 5 秒整段送出（`WavAudio.split`）；App 自己的上限 `maximumBodyBytes` 是 640 KB，因為 base64＋網址編碼後 5 秒會到 310–360 KB，舊的 240 KB 上限曾把每段從正中間再切半、切斷字詞（回報 #8）。伺服器回 413 時才在中間附近最安靜處重切。成大 STT 模型可選（`NCKU_STT_MODEL`，`NckuSttModel`）：預設 `TA and ZH Medical V1`，台語輸出台語漢字、較準；`Chinese & Taiwanese` 會直接把台語翻成華語，但常聽錯（2026-11-10 用合成台語比較）。用 Medical 時 `NCKU_STT_TO_MANDARIN`（預設開）會用 LLM 把回答翻成華語，**翻譯後不再做 AI 校正**（曾把翻好的「吃飽」依主題改成「划船」，回報 #7）（`ReminiscenceAI.mandarinTranscript`，失敗、逾時或變長太多就沿用原文；原文存 `rawText`）。自我介紹不翻。
+- Apple 離線辨識（`STT_APPLE_ON_DEVICE`，預設關，`Speech/AppleSpeechRecognizer.swift`）：開啟後辨識改用 iPadOS 26 的 `SpeechAnalyzer`＋`SpeechTranscriber`（zh-TW，第一次用會自動下載模型），播放仍用語音服務。舊的 `SFSpeechRecognizer` 離線模式在測試 iPad 上回報可用卻只回空字串（回報 #5、#6），不使用；iPadOS 26 以下直接報錯，不改走 Apple 伺服器。只懂國語。設定頁「錄音測試」的「Apple 辨識診斷」（`AppleSpeechDiagnostics`）可用同一段錄音比較各種 Apple 辨識方式。availability 要同時寫 `iOS 26, macOS 26`，否則 CI（macOS）編不過。權限說明 `NSSpeechRecognitionUsageDescription` 在 pbxproj 和 `Config/xtool-Info.plist` 各一份。真正的辨識只能在 iPad 驗證。
 - 辨識不能用時的備案：回答與修圖畫面有「打字回答」「打字描述要修改的地方」→ `submitTypedText`，打的字直接生圖，不校正、不進確認畫面（Log `typedAnswer`）。
 - 錄音不再直接刪：`clearPendingAudio` 把檔案移進 `RecentRecordings`（`tmp/reminicare_recent/`，最新 5 段、24 小時），給回報附錄音用。
 

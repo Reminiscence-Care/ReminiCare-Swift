@@ -39,6 +39,17 @@ private struct SlowLlm: LlmClient {
         #expect(ReminiscenceAI.validateCorrection(none, original: fixed, question: question) == fixed)
     }
 
+    @Test func rejectsChangesThatDoNotSoundAlike() {
+        let original = "我沒有吃飽，然後去河邊"
+        let topical = #"{"changes":[{"from":"吃飽","to":"划船","pinyin":"chi bao → hua chuan"}],"text":"我沒有划船，然後去河邊"}"#
+        #expect(ReminiscenceAI.validateCorrection(topical, original: original, question: "您划過龍舟嗎？") == nil)
+        // The same rewrite without listing it is caught too.
+        #expect(ReminiscenceAI.validateCorrection(#"{"text":"我沒有划船，然後去河邊"}"#, original: original, question: "q") == nil)
+        #expect(ReminiscenceAI.soundsAlike("吃過不", "織過布"))
+        #expect(ReminiscenceAI.soundsAlike("重", "粽"))
+        #expect(!ReminiscenceAI.soundsAlike("吃飽", "划船"))
+    }
+
     @Test func keepsNumbersThatWereSaid() {
         let original = "我1960年在台南織布"
         #expect(ReminiscenceAI.validateCorrection(#"{"text":"我1960年在台南織布"}"#, original: original, question: question) == original)
@@ -306,6 +317,15 @@ private struct SlowLlm: LlmClient {
         try await answer(h, until: .evaluation)
         #expect(h.session.turns.last?.text == "我小時候常常去溪邊抓魚")
         #expect(h.session.turns.last?.rawText == taiwanese)
+    }
+
+    @Test func translatedTextIsNotCorrectedAgain() async throws {
+        let h = try make(transcripts: ["我叫王小明", "我細漢定定去溪仔邊掠魚仔"],
+                         settings: [ConfigKey.speechProvider: "ncku"])
+        try await reachQuestion(h)
+        try await answer(h, until: .evaluation)
+        #expect(h.correctionRequests.current.isEmpty)
+        #expect(h.session.turns.last?.text == "我小時候常常去溪邊抓魚")
     }
 
     @Test func translationOnlyForTheMedicalModelAndWhenOn() throws {

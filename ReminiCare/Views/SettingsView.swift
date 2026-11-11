@@ -126,6 +126,11 @@ struct SettingsView: View {
                     }
                 }
                 Section("語音辨識文字") {
+                    Toggle("國語辨識改用 Apple 離線辨識", isOn: toggle(ConfigKey.appleSpeech, default: false))
+                    Text(AppleSpeechRecognizer.isSupportedOS
+                        ? "用 iPad 內建的繁體中文語音模型（iPadOS 26 的 SpeechAnalyzer），不花額度，錄音不會離開 iPad；第一次使用會先下載模型，需要網路。只聽得懂國語，台語請關掉。語音播放仍用上方選的服務。"
+                        : "Apple 離線辨識需要 iPadOS 26 以上，這台 iPad 開啟後無法辨識。")
+                        .font(.caption).foregroundStyle(.secondary)
                     Toggle("用 AI 校正辨識錯字", isOn: toggle(ConfigKey.transcriptCorrection, default: true))
                     Text("依照當下的問題修正同音、近音錯字（例如「字過，不」→「織過布」），不增刪內容。會多花幾秒，使用上方的語言模型與 Key；失敗時沿用原文。自我介紹的稱呼不會自動改字。")
                         .font(.caption).foregroundStyle(.secondary)

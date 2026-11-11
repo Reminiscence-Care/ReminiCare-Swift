@@ -6,6 +6,8 @@ import UIKit
 struct RecordingTestView: View {
     @State private var test = RecordingTest()
     @State private var copied = false
+    @State private var appleLines: [AppleSpeechDiagnostics.Line] = []
+    @State private var diagnosing = false
 
     var body: some View {
         Form {
@@ -81,6 +83,24 @@ struct RecordingTestView: View {
                     if let message = test.sttMessage {
                         Text(message).foregroundStyle(.orange)
                     }
+                }
+
+                Section {
+                    Button(diagnosing ? "診斷中…" : "Apple 辨識診斷", systemImage: "stethoscope") {
+                        guard let file = test.file else { return }
+                        diagnosing = true
+                        appleLines = []
+                        Task {
+                            appleLines = await AppleSpeechDiagnostics.run(file)
+                            diagnosing = false
+                        }
+                    }
+                    .disabled(diagnosing || !test.canTranscribe)
+                    ForEach(appleLines) { line in
+                        LabeledContent(line.method) { Text(line.outcome).textSelection(.enabled) }
+                    }
+                } footer: {
+                    Text("用這段錄音試 Apple 每一種辨識方式，找出這台 iPad 可用的那一種。「送 Apple 伺服器」那一項會把錄音傳給 Apple；新框架缺模型時會先下載。")
                 }
 
                 Section {

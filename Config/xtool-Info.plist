@@ -12,6 +12,8 @@
 	<array>
 		<integer>2</integer>
 	</array>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>使用 iPad 內建的語音模型把您說的話轉成文字，不會傳到網路</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>我們需要使用您的麥克風來對話</string>
 	<key>NSAppTransportSecurity</key>

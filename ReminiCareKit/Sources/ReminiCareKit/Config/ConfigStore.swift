@@ -31,6 +31,7 @@ public enum ConfigKey {
     public static let transcriptConfirmation = "STT_CONFIRM_TRANSCRIPT"
     public static let nckuSttModel = "NCKU_STT_MODEL"
     public static let nckuSttToMandarin = "NCKU_STT_TO_MANDARIN"
+    public static let appleSpeech = "STT_APPLE_ON_DEVICE"
     public static let errorReportURL = "ERROR_REPORT_URL"
     public static let defaultErrorReportURL = "https://reminicare-report-api.hding49.workers.dev"
     public static let defaultNckuSttURL = "http://140.116.245.149:5002/proxy"
@@ -105,6 +106,7 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField(ConfigKey.transcriptConfirmation, "生圖前確認辨識文字", hint: "false", secure: false, default: "false"),
         ConfigField(ConfigKey.nckuSttModel, "成大 STT 模型", hint: NckuSttModel.medical.rawValue, secure: false, default: NckuSttModel.medical.rawValue),
         ConfigField(ConfigKey.nckuSttToMandarin, "成大台語辨識結果用 AI 轉華語", hint: "true", secure: false, default: "true"),
+        ConfigField(ConfigKey.appleSpeech, "國語辨識改用 Apple 離線辨識", hint: "false", secure: false, default: "false"),
         ConfigField(ConfigKey.errorReportURL, "錯誤回報網址", hint: "https://reminicare-report-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultErrorReportURL),
     ]
 
@@ -232,8 +234,10 @@ public final class ConfigStore: @unchecked Sendable {
     public var transcriptConfirmationEnabled: Bool { value(ConfigKey.transcriptConfirmation) == "true" }
     public var nckuSttModel: NckuSttModel { NckuSttModel.parse(value(ConfigKey.nckuSttModel)) }
     /// NCKU's medical model writes Taiwanese as Taiwanese Hanzi; translate answers to Mandarin (on unless turned off).
+    /// Recognition by Apple's on-device zh-TW model instead of the speech service (playback is unchanged).
+    public var usesAppleSpeech: Bool { value(ConfigKey.appleSpeech) == "true" }
     public var translatesTranscriptToMandarin: Bool {
-        SpeechProvider(value(ConfigKey.speechProvider)) == .ncku && nckuSttModel == .medical
+        !usesAppleSpeech && SpeechProvider(value(ConfigKey.speechProvider)) == .ncku && nckuSttModel == .medical
             && value(ConfigKey.nckuSttToMandarin) != "false"
     }
 

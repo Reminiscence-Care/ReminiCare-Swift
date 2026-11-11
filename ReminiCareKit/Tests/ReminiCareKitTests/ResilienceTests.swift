@@ -123,6 +123,9 @@ import Testing
         #expect(recognizer("") is YatingWorkerRecognizer)
         #expect(recognizer("yatingDirect") is YatingSpeechRecognizer)
         #expect(recognizer("ncku") is NckuSpeechRecognizer)
+        let apple = ConfigStore(values: [ConfigKey.speechProvider: "ncku", ConfigKey.appleSpeech: "true"])
+        #expect(ServiceFactory(config: apple).baseRecognizer() is AppleSpeechRecognizer)
+        #expect(!apple.translatesTranscriptToMandarin, "Apple 辨識的是國語，不用翻譯")
         #expect(ServiceFactory(config: ConfigStore(values: [:])).recognizer() is RetryingSpeechRecognizer)
     }
 }

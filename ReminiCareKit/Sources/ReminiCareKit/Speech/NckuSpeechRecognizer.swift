@@ -39,7 +39,10 @@ public enum NckuSttModel: String, Sendable, CaseIterable {
 
 /// NCKU ASR proxy: 5-second segments, two concurrent uploads, halves a segment the server rejects as too large.
 public struct NckuSpeechRecognizer: SpeechRecognizer {
-    public static let maximumBodyBytes = 240 * 1024
+    /// Our own cap before sending. A 5-second segment encodes to 310–360 KB (quiet samples turn
+    /// into "/" which form encoding triples), so the old 240 KB cap halved every segment mid-word
+    /// (report 8). The server took 312 KB on 2026-11-11; if it refuses, its 413 still subdivides.
+    public static let maximumBodyBytes = 640 * 1024
     public let token: @Sendable () -> String
     public let endpoint: URL
     public var model: NckuSttModel = .medical
@@ -150,9 +153,10 @@ public struct NckuSpeechRecognizer: SpeechRecognizer {
         guard audio.pcm.count >= 2 * WavAudio.bytesPerSecond else {
             throw SttError(.payloadTooLarge, "成大 STT 仍拒絕短錄音，請稍後重試或切換語音服務。")
         }
-        let middle = (audio.pcm.count / 4) * 2
-        let first = try await recognize(WavAudio(pcm: audio.pcm.prefix(middle)))
-        let second = try await recognize(WavAudio(pcm: audio.pcm.suffix(from: audio.pcm.startIndex + middle)))
-        return [first, second].filter { !$0.isEmpty }.joined(separator: "，")
+        // Halve at the quietest point within 0.25 s of the middle, not mid-word.
+        let half = (audio.pcm.count / 4) * 2 + WavAudio.bytesPerSecond / 4
+        var texts: [String] = []
+        for part in audio.split(maximumBytes: half) { texts.append(try await recognize(part)) }
+        return texts.filter { !$0.isEmpty }.joined(separator: "，")
     }
 }
