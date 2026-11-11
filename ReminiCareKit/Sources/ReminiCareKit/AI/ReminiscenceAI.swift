@@ -231,8 +231,41 @@ public struct ReminiscenceAI: Sendable {
             let from = (change["from"] as? String ?? "").filter { $0.isLetter || $0.isNumber }
             let to = (change["to"] as? String ?? "").filter { $0.isLetter || $0.isNumber }
             guard !from.isEmpty, compactOriginal.contains(from), abs(from.count - to.count) <= 1 else { return nil }
+            guard soundsAlike(from, to) else { return nil }
         }
+        // Same length: every replaced character must sound alike, listed or not.
+        guard soundsAlike(compactOriginal, text.filter { $0.isLetter || $0.isNumber }) else { return nil }
         return text
+    }
+
+    /// Position by position, each changed Han character reads alike in Mandarin
+    /// (same final after folding Taiwanese-accent pairs zh/z, ch/c, sh/s, n/l,
+    /// ing/in, eng/en). Different lengths are left to the length checks.
+    /// "字→織", "不→布", "重→粽" pass; "吃飽→划船" does not.
+    static func soundsAlike(_ before: String, _ after: String) -> Bool {
+        guard before.count == after.count else { return true }
+        return zip(before, after).allSatisfy { a, b in
+            guard a != b else { return true }
+            guard let x = pinyin(a), let y = pinyin(b) else { return false }
+            return pinyinFinal(x) == pinyinFinal(y)
+        }
+    }
+
+    static func pinyin(_ character: Character) -> String? {
+        let text = String(character)
+        guard containsHan(text) else { return nil }
+        return text.applyingTransform(.mandarinToLatin, reverse: false)?
+            .applyingTransform(.stripDiacritics, reverse: false)?.lowercased()
+    }
+
+    static func pinyinFinal(_ syllable: String) -> String {
+        var s = syllable
+        for (from, to) in [("zh", "z"), ("ch", "c"), ("sh", "s")] where s.hasPrefix(from) { s = to + s.dropFirst(2) }
+        if s.hasSuffix("ing") { s = String(s.dropLast(3)) + "in" }
+        if s.hasSuffix("eng") { s = String(s.dropLast(3)) + "en" }
+        let initials = ["b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "z", "c", "s", "r", "y", "w"]
+        let initial = initials.first { s.hasPrefix($0) && s.count > $0.count } ?? ""
+        return String(s.dropFirst(initial.count))
     }
 
     /// Runs of ASCII letters and digits, e.g. names or numbers the model may invent.

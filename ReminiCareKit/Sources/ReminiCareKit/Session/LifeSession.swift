@@ -437,7 +437,9 @@ public final class LifeSession {
                 heard = await mandarinTranscript(text)
                 guard isCurrent(current) else { return }
             }
-            if config.transcriptCorrectionEnabled {
+            // Correction fixes recognition homophones; translated text is the LLM's own wording,
+            // and correcting it bent "吃飽" toward the topic ("划船", report 7).
+            if config.transcriptCorrectionEnabled && !config.translatesTranscriptToMandarin {
                 heard = await correctedTranscript(heard, revision: revision)
                 guard isCurrent(current) else { return }
             }
