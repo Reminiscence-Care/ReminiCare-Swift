@@ -14,6 +14,11 @@ struct SettingsView: View {
     @State private var validationError: String?
     @State private var health: [ServiceKind: HealthResult] = [:]
     @State private var checking: Set<ServiceKind> = []
+    @State private var keyWorkerStatus: String?
+    @State private var fetchingKeys = false
+    @State private var models: (provider: String, ids: [String]) = ("", [])
+    @State private var modelStatus: String?
+    @State private var fetchingModels = false
     private let history = HealthHistory()
 
     private var visibleKeys: [String] {
@@ -108,22 +113,25 @@ struct SettingsView: View {
                 }
                 Section {
                     ForEach(ConfigStore.fields.filter { visibleKeys.contains($0.key) }) { field in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(field.displayName).font(.subheadline).foregroundStyle(.secondary)
-                            Group {
-                                if field.isSecure {
-                                    SecureField(field.hint, text: binding(field.key))
-                                } else {
-                                    TextField(field.hint, text: binding(field.key))
-                                }
-                            }
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            if let help = help(field.key) {
-                                Text(help).font(.caption).foregroundStyle(.secondary)
+                        fieldRow(field)
+                    }
+                }
+                Section {
+                    Toggle("從 Key Worker 取得 Key", isOn: toggle(ConfigKey.keyWorkerEnabled, default: false))
+                    if values[ConfigKey.keyWorkerEnabled] == "true" {
+                        ForEach(ConfigStore.fields.filter { [ConfigKey.keyWorkerURL, ConfigKey.keyWorkerToken].contains($0.key) }) { field in
+                            fieldRow(field)
+                        }
+                        HStack {
+                            Button(fetchingKeys ? "取得中…" : "立即取得") { fetchKeys() }
+                                .disabled(fetchingKeys)
+                            if let keyWorkerStatus {
+                                Text(keyWorkerStatus).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }
+                } footer: {
+                    Text("開啟後，App 每次啟動都會向 Worker 取得成大 STT／TTS Token、語音 Worker Token、Cloudflare 生圖 Token，並覆蓋手動填的值；Worker 連不上時沿用已存的值。要改用手動填的值請關閉。語言模型和 OpenAI 生圖的 Key 一律在上方手動填。")
                 }
                 Section("語音辨識文字") {
                     Toggle("國語辨識改用 Apple 離線辨識", isOn: toggle(ConfigKey.appleSpeech, default: false))
@@ -183,6 +191,79 @@ struct SettingsView: View {
         }
         .interactiveDismissDisabled()
         .onAppear(perform: loadValues)
+    }
+
+    @ViewBuilder
+    private func fieldRow(_ field: ConfigField) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(field.displayName).font(.subheadline).foregroundStyle(.secondary)
+            Group {
+                if field.isSecure {
+                    SecureField(field.hint, text: binding(field.key))
+                } else {
+                    TextField(field.hint, text: binding(field.key))
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            if let help = help(field.key) {
+                Text(help).font(.caption).foregroundStyle(.secondary)
+            }
+            if field.key == ConfigStore.llmModelKey(llm) {
+                HStack {
+                    Button(fetchingModels ? "取得中…" : "取得模型清單") { fetchModels() }
+                        .buttonStyle(.borderless)
+                        .disabled(fetchingModels)
+                    if models.provider == llm, !models.ids.isEmpty {
+                        Menu("選擇模型（\(models.ids.count)）") {
+                            ForEach(models.ids, id: \.self) { id in
+                                Button(id) { values[field.key] = id }
+                            }
+                        }
+                    }
+                    if let modelStatus {
+                        Text(modelStatus).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fills the form with the Worker's keys; "儲存並套用" saves them.
+    private func fetchKeys() {
+        let url = values[ConfigKey.keyWorkerURL] ?? ""
+        let token = values[ConfigKey.keyWorkerToken] ?? ""
+        fetchingKeys = true
+        keyWorkerStatus = nil
+        Task {
+            do throws(KeyWorker.Failure) {
+                let keys = try await KeyWorker.fetch(baseURL: url, token: token)
+                values.merge(keys) { _, new in new }
+                keyWorkerStatus = "取得 \(keys.count) 個，按「儲存並套用」後生效"
+            } catch {
+                keyWorkerStatus = error.message
+            }
+            fetchingKeys = false
+        }
+    }
+
+    /// Lists the current provider's models with the key typed above.
+    private func fetchModels() {
+        let provider = llm
+        let settings = ServiceFactory(config: ConfigStore(values: formValues)).llmConfig()
+        let key = values[settings.apiKeyReference] ?? ""
+        fetchingModels = true
+        modelStatus = nil
+        Task {
+            do throws(LlmModelList.Failure) {
+                let ids = try await LlmModelList.fetch(baseURL: settings.baseURL, apiKey: key)
+                models = (provider, ids)
+                modelStatus = ids.isEmpty ? "清單是空的，請手動輸入" : nil
+            } catch {
+                modelStatus = error.message
+            }
+            fetchingModels = false
+        }
     }
 
     private func binding(_ key: String) -> Binding<String> {

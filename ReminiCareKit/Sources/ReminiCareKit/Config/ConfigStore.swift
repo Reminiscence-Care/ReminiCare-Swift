@@ -39,6 +39,10 @@ public enum ConfigKey {
     public static let speechWorkerURL = "SPEECH_WORKER_URL"
     public static let speechWorkerToken = "SPEECH_WORKER_TOKEN"
     public static let defaultSpeechWorkerURL = "https://reminicare-speech-api.hding49.workers.dev"
+    public static let keyWorkerEnabled = "KEY_WORKER_ENABLED"
+    public static let keyWorkerURL = "KEY_WORKER_URL"
+    public static let keyWorkerToken = "KEY_WORKER_TOKEN"
+    public static let defaultKeyWorkerURL = "https://reminicare-key-api.hding49.workers.dev"
 }
 
 /// Where speech recognition and synthesis go.
@@ -69,6 +73,7 @@ public final class ConfigStore: @unchecked Sendable {
         "NVIDIA_API_KEY", "GEMINI_API_KEY", "OPENAI_API_KEY", "SILICONFLOW_API_KEY",
         "CLOUDFLARE_IMAGE_APP_TOKEN", "CUSTOM_LLM_API_KEY", "CUSTOM_IMAGE_API_KEY",
         "NCKU_TTS_TOKEN", "NCKU_STT_TOKEN", "YATING_API_KEY", "GROQ_API_KEY", ConfigKey.speechWorkerToken,
+        ConfigKey.keyWorkerToken,
     ]
 
     public static let fields: [ConfigField] = [
@@ -107,6 +112,9 @@ public final class ConfigStore: @unchecked Sendable {
         ConfigField(ConfigKey.nckuSttModel, "成大 STT 模型", hint: NckuSttModel.medical.rawValue, secure: false, default: NckuSttModel.medical.rawValue),
         ConfigField(ConfigKey.nckuSttToMandarin, "成大台語辨識結果用 AI 轉華語", hint: "true", secure: false, default: "true"),
         ConfigField(ConfigKey.appleSpeech, "國語辨識改用 Apple 離線辨識", hint: "false", secure: false, default: "false"),
+        ConfigField(ConfigKey.keyWorkerEnabled, "從 Key Worker 取得 Key", hint: "false", secure: false, default: "false"),
+        ConfigField(ConfigKey.keyWorkerURL, "Key Worker 網址", hint: "https://reminicare-key-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultKeyWorkerURL),
+        ConfigField(ConfigKey.keyWorkerToken, "Key Worker Token", hint: "與 Key Worker APP_TOKEN 相同的值"),
         ConfigField(ConfigKey.errorReportURL, "錯誤回報網址", hint: "https://reminicare-report-api.<subdomain>.workers.dev", secure: false, default: ConfigKey.defaultErrorReportURL),
     ]
 
