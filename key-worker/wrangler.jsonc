@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reminicare-key-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  // Secrets (wrangler secret put): APP_TOKEN, and any of NCKU_STT_TOKEN,
+  // NCKU_TTS_TOKEN, SPEECH_WORKER_TOKEN, CLOUDFLARE_IMAGE_APP_TOKEN
+  "ratelimits": [
+    {
+      "name": "KEY_RATE_LIMITER",
+      "namespace_id": "2043",
+      "simple": { "limit": 10, "period": 60 }
+    }
+  ],
+  "observability": { "enabled": true, "head_sampling_rate": 1 }
+}

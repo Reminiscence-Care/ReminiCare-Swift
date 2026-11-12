@@ -124,6 +124,7 @@ struct HomeView: View {
         do {
             try ConfigStore.shared.load()
             ready = true
+            Task { await KeyWorker.refresh() }
         } catch {
             loadError = "設定讀取失敗，點此重試"
         }

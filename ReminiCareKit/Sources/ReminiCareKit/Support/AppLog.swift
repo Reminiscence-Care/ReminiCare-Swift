@@ -245,6 +245,8 @@ public final class AppLog: ObservableObject, @unchecked Sendable {
         "transcriptEdited": "已手動修改辨識文字",
         "transcriptRerecord": "辨識文字不對，重新錄音",
         "typedAnswer": "改用打字輸入",
+        "keyWorkerFetched": "已從 Key Worker 取得 Key（數量見進度欄）",
+        "keyWorkerFailed": "Key Worker 取得 Key 失敗，沿用已存的 Key",
         "appleSpeech": "Apple 離線辨識（國語）",
         "appleSpeechDenied": "Apple 語音辨識權限未允許",
         "appleSpeechUnavailable": "Apple 離線辨識不可用（需要 iPadOS 26）",
